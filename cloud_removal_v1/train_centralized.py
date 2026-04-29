@@ -198,6 +198,56 @@ class _BinarySpikeModule(nn.Module):
         return _BinarySpike.apply(x)
 
 
+class _SingleGroupSRB(nn.Module):
+    """Spiking Residual Block with only the temporal-LIF group (Group 1).
+
+    Ablation B2 (no_dual_group): surgically removes the PixelShuffle spatial
+    group (Group 2) and the cross-scale gate from every SRB in the network.
+    The shortcut conv, MultiDimensional attention, and FSTAModule are kept
+    so the only variable relative to the full SRB is the second processing
+    path.  Initialised fresh (no weight transfer from the full SRB; the
+    ablation is always trained from scratch, not fine-tuned).
+    """
+
+    def __init__(self, dim: int):
+        super().__init__()
+        from cloud_removal_v1.models.vlifnet import (
+            _make_lif_or_relu, _make_bn, v_th, alpha,
+        )
+        from cloud_removal_v1.models.fsta_module import FSTAModule
+        from spikingjelly.activation_based import functional, layer
+
+        functional.set_step_mode(self, step_mode="m")
+
+        self.lif_1 = _make_lif_or_relu(v_threshold=v_th, decay_input=False)
+        self.conv1 = layer.Conv2d(dim, dim, kernel_size=3, stride=1, padding=1, bias=False, step_mode="m")
+        self.bn1 = _make_bn(num_features=dim, alpha=alpha, v_th=v_th, affine=True)
+        self.high_freq_scale_1 = nn.Parameter(torch.ones(1))
+        self.low_freq_scale_1 = nn.Parameter(torch.ones(1))
+
+        self.shortcut = nn.Sequential(
+            layer.Conv2d(dim, dim, kernel_size=3, stride=1, padding=1, bias=False, step_mode="m"),
+            _make_bn(num_features=dim, alpha=alpha, v_th=v_th, affine=True),
+        )
+        self.attn = layer.MultiDimensionalAttention(
+            T=4, reduction_t=4, reduction_c=16, kernel_size=3, C=dim)
+        self.fsta = FSTAModule(channels=dim, T=4)
+
+    def forward(self, x):
+        x_h_1 = self.lif_1(x)
+        x_l_1 = x - x_h_1
+        combined = (self.high_freq_scale_1 * x_h_1
+                    + self.low_freq_scale_1 * x_l_1
+                    + x * x_h_1)
+        out = self.bn1(self.conv1(combined))
+
+        shortcut = torch.clone(x)
+        out = out + self.shortcut(shortcut)
+        out = self.attn(out) + shortcut
+        out = self.fsta(out)
+        return out
+
+
 def _apply_ablation(model: nn.Module, ablation: str, backbone: str) -> nn.Module:
     if ablation == "none":
         return model
@@ -233,11 +283,16 @@ def _apply_ablation(model: nn.Module, ablation: str, backbone: str) -> nn.Module
         return model
 
     if ablation == "no_dual_group":
-        raise NotImplementedError(
-            "ablation=no_dual_group requires modifying "
-            "cloud_removal_v1/models/vlifnet.py:Spiking_Residual_Block.forward "
-            "to skip the second (PixelShuffle-LIF) group.  See B2 patch."
-        )
+        from cloud_removal_v1.models.vlifnet import Spiking_Residual_Block
+        targets = [(name, sub) for name, sub in model.named_modules()
+                   if isinstance(sub, Spiking_Residual_Block)]
+        for name, sub in targets:
+            # Infer dim from the existing SRB's first conv weight
+            dim = sub.conv1.weight.shape[0]
+            _set_submodule(model, name, _SingleGroupSRB(dim).to(
+                next(sub.parameters()).device))
+        _log(f"ablation=no_dual_group: replaced {len(targets)} SRB → SingleGroupSRB")
+        return model
 
     raise ValueError(f"unknown ablation: {ablation}")
 
