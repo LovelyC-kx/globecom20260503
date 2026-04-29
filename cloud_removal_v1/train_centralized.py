@@ -14,7 +14,16 @@ Supports three backbones:
 And three ablation modes (apply only when backbone in {vlif, vlif_ann}):
   * none           : full model
   * no_fsta        : FSTAModule + FreMLPBlock → Identity
-  * binary_spike   : MultiSpike-4 → binary {0, 1} (vlif backbone only)
+  * binary_spike   : MultiSpike-4 → binary {0, 1} (vlif backbone only).
+                     NOTE: VLIFNet's mem_update modules accumulate small
+                     residual signals; under the default init (BN
+                     gamma_init = alpha * V_th ~ 0.106) and short training
+                     budgets (< ~50 ep) the membrane potential may not
+                     exceed the 0.5 firing threshold, in which case both
+                     MultiSpike-4 and binary_spike output all zeros and
+                     the ablation is empirically silent.  Use the full
+                     300-epoch training schedule for a meaningful B3
+                     ablation result.
   * no_dual_group  : NOT IMPLEMENTED (requires vlifnet.py source edit)
 
 Usage
