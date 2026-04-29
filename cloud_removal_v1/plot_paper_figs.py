@@ -183,7 +183,128 @@ def _resolve_figs(spec: str) -> List[int]:
 
 
 # ---------------------------------------------------------------------------
-# Block 2 onwards (data loaders, style helpers, fig fns, table fns, main)
+# Block 2 — data loaders (pure IO; missing files → None + _warn, never raise)
+# ---------------------------------------------------------------------------
+
+def load_centralized_npz(outputs_v1: Path,
+                         run_name: str) -> Optional[Dict[str, np.ndarray]]:
+    """Read ``Outputs_v1/centralized_<run>.npz`` written by train_centralized.py.
+
+    Returns a dict with keys::
+
+        epoch, lr, train_loss, train_charbonnier, train_ssim_loss,
+        eval_psnr, eval_ssim, wall_seconds
+
+    or None if the file is missing.  Each value is a 1-D ``np.ndarray``.
+    """
+    path = outputs_v1 / f"centralized_{run_name}.npz"
+    if not path.is_file():
+        _warn(f"missing centralized npz: {path}")
+        return None
+    with np.load(path, allow_pickle=False) as d:
+        return {k: d[k].copy() for k in d.files}
+
+
+def load_centralized_summary(outputs_v1: Path,
+                             run_name: str) -> Optional[Dict]:
+    """Read ``Outputs_v1/centralized_<run>_summary.json``.
+
+    Returns the parsed dict (config / params_M / best / final / total_wall_seconds)
+    or None if missing.
+    """
+    path = outputs_v1 / f"centralized_{run_name}_summary.json"
+    if not path.is_file():
+        _warn(f"missing centralized summary: {path}")
+        return None
+    with open(path, "r") as f:
+        return json.load(f)
+
+
+def load_federated_npz(outputs_v2: Path,
+                       run_name: str,
+                       bn_mode: str = F_BN,
+                       scheme: str = F_SCHEME,
+                       ) -> Optional[Dict[str, np.ndarray]]:
+    """Read ``Outputs_v2/v2a_<run>_<bn>_<scheme>.npz`` from run_smoke.py.
+
+    Returns a dict with keys::
+
+        epochs, train_loss, eval_psnr, eval_ssim, comm_bytes,
+        per_plane_psnr, per_plane_ssim, wall_seconds
+
+    where ``per_plane_psnr`` / ``per_plane_ssim`` are object-dtype arrays
+    (list of per-plane scalar lists), so we load with ``allow_pickle=True``.
+    None if the file is missing.
+    """
+    path = outputs_v2 / f"v2a_{run_name}_{bn_mode}_{scheme}.npz"
+    if not path.is_file():
+        _warn(f"missing federated npz: {path}")
+        return None
+    with np.load(path, allow_pickle=True) as d:
+        return {k: d[k].copy() for k in d.files}
+
+
+def load_federated_summary(outputs_v2: Path,
+                           run_name: str) -> Optional[Dict]:
+    """Read ``Outputs_v2/v2a_<run>_summary.json`` (config + final per-cell numbers)."""
+    path = outputs_v2 / f"v2a_{run_name}_summary.json"
+    if not path.is_file():
+        _warn(f"missing federated summary: {path}")
+        return None
+    with open(path, "r") as f:
+        return json.load(f)
+
+
+def load_energy_summary(energy_dir: Path) -> Optional[Dict]:
+    """Read ``energy_summary.json`` from energy_estimation.py.
+
+    Returns None if missing or malformed.  The dict has::
+
+        ckpt, config, params_M, n_samples_evaluated,
+        energy_per_image: {ann_macs, snn_effective_acs,
+                           energy_ann_pj, energy_snn_lower_pj,
+                           energy_snn_upper_pj},
+        per_layer_macs:  [...],
+        per_layer_spikes:[...],
+    """
+    path = energy_dir / "energy_summary.json"
+    if not path.is_file():
+        _warn(f"missing energy summary: {path}")
+        return None
+    with open(path, "r") as f:
+        blob = json.load(f)
+    if "energy_per_image" not in blob:
+        _warn(f"energy summary {path} missing 'energy_per_image' key")
+        return None
+    return blob
+
+
+def load_ckpt_for_inference(ckpt_path: Path,
+                            device: "torch.device",
+                            ) -> Optional[Tuple["nn.Module", Dict, bool]]:
+    """Reconstruct model + load weights from a centralized ``*_best.pt`` ckpt.
+
+    Returns (model.eval(), cfg, is_snn) on success, or None on miss / failure.
+
+    Delegates to :func:`cloud_removal_v2.energy_estimation._build_model_from_ckpt`
+    which already handles backbone dispatch (vlif / vlif_ann / plain_ann),
+    ablation re-application, and strict=False weight loading.
+    """
+    if not Path(ckpt_path).is_file():
+        _warn(f"missing ckpt: {ckpt_path}")
+        return None
+    try:
+        from cloud_removal_v2.energy_estimation import _build_model_from_ckpt
+        model, cfg = _build_model_from_ckpt(str(ckpt_path), device)
+    except Exception as e:                    # noqa: BLE001
+        _warn(f"failed to load {ckpt_path}: {type(e).__name__}: {e}")
+        return None
+    is_snn = cfg.get("backbone", "vlif") == "vlif"
+    return model, cfg, is_snn
+
+
+# ---------------------------------------------------------------------------
+# Block 3 onwards (style helpers, fig fns, table fns, main wiring)
 # will be appended by subsequent commits — see plan in chat.
 # ---------------------------------------------------------------------------
 
