@@ -544,19 +544,30 @@ def main(argv=None) -> None:
     # comparison is apples-to-apples.  We use build_vlifnet DIRECTLY (not a
     # full 50-satellite constellation) — that avoids ~30-60 s of wasted
     # GPU time setting up 50 duplicate nets only to throw them away.
-    from cloud_removal_v1.models import build_vlifnet
-    _log("[init] building shared seed state_dict (1 fresh VLIFNet)")
-    _seed_net = build_vlifnet(
-        dim=args.vlif_dim,
-        en_num_blocks=tuple(args.en_blocks),
-        de_num_blocks=tuple(args.de_blocks),
-        T=args.T,
-        use_refinement=False,
-        inp_channels=3, out_channels=3,
-        backend=args.vlif_backend,
-        bn_variant=getattr(args, "bn_variant", "tdbn"),
-        backbone=getattr(args, "backbone", "snn"),
-    ).to(device)
+    backbone = getattr(args, "backbone", "snn")
+    if backbone == "plain":
+        from cloud_removal_v1.models import build_plain_unet
+        _log("[init] building shared seed state_dict (1 fresh PlainUNet)")
+        _seed_net = build_plain_unet(
+            dim=args.vlif_dim,
+            en_blocks=tuple(args.en_blocks[:3]),
+            de_blocks=tuple(args.de_blocks[:3]),
+            inp_channels=3, out_channels=3,
+        ).to(device)
+    else:
+        from cloud_removal_v1.models import build_vlifnet
+        _log(f"[init] building shared seed state_dict (1 fresh VLIFNet, backbone={backbone})")
+        _seed_net = build_vlifnet(
+            dim=args.vlif_dim,
+            en_num_blocks=tuple(args.en_blocks),
+            de_num_blocks=tuple(args.de_blocks),
+            T=args.T,
+            use_refinement=False,
+            inp_channels=3, out_channels=3,
+            backend=args.vlif_backend,
+            bn_variant=getattr(args, "bn_variant", "tdbn"),
+            backbone=backbone,
+        ).to(device)
     seed_state_dict: Dict = {}
     for k, v in _seed_net.state_dict().items():
         if isinstance(v, torch.Tensor):

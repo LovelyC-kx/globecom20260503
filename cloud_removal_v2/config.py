@@ -138,8 +138,13 @@ def _validate(ns: argparse.Namespace) -> None:
     assert ns.vlif_backend in ("torch", "cupy")
     assert ns.bn_variant in ("tdbn", "bn2d"), \
         f"bn_variant must be 'tdbn' or 'bn2d', got {ns.bn_variant!r}"
-    assert ns.backbone in ("snn", "ann"), \
-        f"backbone must be 'snn' or 'ann', got {ns.backbone!r}"
+    assert ns.backbone in ("snn", "ann", "plain"), \
+        f"backbone must be 'snn', 'ann' or 'plain', got {ns.backbone!r}"
+    if ns.backbone == "plain" and ns.bn_variant == "tdbn":
+        raise ValueError(
+            "backbone='plain' is incompatible with bn_variant='tdbn' "
+            "(TDBN's gamma_init = alpha*V_th assumes spike thresholds; "
+            "PlainUNet has none).  Use --bn_variant bn2d.")
     assert ns.partition_mode in ("iid", "dirichlet_source", "dirichlet_cluster")
     assert ns.eval_mode in ("center_patch", "fullimage", "sliding")
     assert 0.0 < ns.lr and ns.min_lr >= 0
@@ -192,10 +197,13 @@ def parse_v2a_cli(argv: Optional[List[str]] = None) -> argparse.Namespace:
                    help="'tdbn' = threshold-dependent BN (default, FLSNN setup). "
                         "'bn2d' = standard nn.BatchNorm2d (SC-16d ablation).")
     p.add_argument("--backbone", type=str, default=V2A_DEFAULTS["backbone"],
-                   choices=["snn", "ann"],
+                   choices=["snn", "ann", "plain"],
                    help="'snn' = LIFNode + MultiSpike4 (default). "
                         "'ann' = ReLU replaces every spike activation "
-                        "(FLSNN §VI-B ANN-vs-SNN comparison).")
+                        "(FLSNN §VI-B ANN-vs-SNN comparison). "
+                        "'plain' = PlainUNet baseline (no spike, no FSTA, "
+                        "no frequency module — F_plain experiment; "
+                        "must be paired with --bn_variant bn2d).")
     p.add_argument("--lr",           type=float, default=V2A_DEFAULTS["lr"])
     p.add_argument("--partition_alpha", type=float, default=V2A_DEFAULTS["partition_alpha"])
     p.add_argument("--partition_seed",  type=int,   default=V2A_DEFAULTS["partition_seed"])

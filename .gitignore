@@ -12,3 +12,13 @@ __pycache__/
 # Virtualenvs
 .venv/
 venv/
+
+# Training outputs (npz / ckpt / tensorboard / generated figures)
+Outputs/
+Outputs_v1/
+Outputs_v2/
+Outputs_energy*/
+figures/
+*.pt
+*.npz
+!cloud_removal_v*/tests/**/*.npz
