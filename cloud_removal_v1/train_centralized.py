@@ -24,7 +24,9 @@ And three ablation modes (apply only when backbone in {vlif, vlif_ann}):
                      the ablation is empirically silent.  Use the full
                      300-epoch training schedule for a meaningful B3
                      ablation result.
-  * no_dual_group  : NOT IMPLEMENTED (requires vlifnet.py source edit)
+  * no_dual_group  : SRB → single-group SRB surgery (drops PixelShuffle
+                     spatial group + cross-scale gate); fresh-init,
+                     trained from scratch.  See _SingleGroupSRB below.
 
 Usage
 -----
