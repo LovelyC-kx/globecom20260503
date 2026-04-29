@@ -1,0 +1,16 @@
+# ─── Conda base env (original FLSNN classification pipeline) ────────────────
+# conda create -n split_inference python=3.9
+# conda install pytorch torchvision torchaudio pytorch-cuda=12.1 -c pytorch -c nvidia
+
+# ─── v1 Cloud-Removal pipeline extra pip deps ───────────────────────────────
+# Tested on PyTorch 1.13.1 / 2.1.x + CUDA 11.8 / 12.1 on NVIDIA V100.
+# If cupy wheel fails to build, fall back to backend='torch' in
+# Spiking_Models/VLIFNet/model.py (CloudRemovalSNNTask does this automatically).
+spikingjelly==0.0.0.0.14       # LIF/TDBN/MultiDimensionalAttention backend
+thop>=0.1.1                    # param / FLOPs profiler (v2 uses it; v1 imports optional)
+tensorboard>=2.10              # training curves
+tqdm>=4.64                     # progress bars
+Pillow>=9.0                    # image I/O for CUHK-CR
+scikit-image>=0.19             # optional SSIM reference during sanity checks
+numpy>=1.21
+matplotlib>=3.5
