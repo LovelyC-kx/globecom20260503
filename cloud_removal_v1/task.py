@@ -156,18 +156,28 @@ class CloudRemovalSNNTask:
         backend = getattr(args, "vlif_backend", "torch")
         bn_variant = getattr(args, "bn_variant", "tdbn")
         backbone = getattr(args, "backbone", "snn")
-        self.model = build_vlifnet(
-            dim=args.vlif_dim,
-            en_num_blocks=tuple(args.en_blocks),
-            de_num_blocks=tuple(args.de_blocks),
-            T=args.T,
-            use_refinement=False,
-            inp_channels=3,
-            out_channels=3,
-            backend=backend,
-            bn_variant=bn_variant,
-            backbone=backbone,
-        ).to(self.device)
+        if backbone == "plain":
+            from .models import build_plain_unet
+            self.model = build_plain_unet(
+                dim=args.vlif_dim,
+                en_blocks=tuple(args.en_blocks[:3]),
+                de_blocks=tuple(args.de_blocks[:3]),
+                inp_channels=3,
+                out_channels=3,
+            ).to(self.device)
+        else:
+            self.model = build_vlifnet(
+                dim=args.vlif_dim,
+                en_num_blocks=tuple(args.en_blocks),
+                de_num_blocks=tuple(args.de_blocks),
+                T=args.T,
+                use_refinement=False,
+                inp_channels=3,
+                out_channels=3,
+                backend=backend,
+                bn_variant=bn_variant,
+                backbone=backbone,
+            ).to(self.device)
 
         if init_state_dict is not None:
             # SpikingJelly's MemoryModule accepts scalar / None memory
