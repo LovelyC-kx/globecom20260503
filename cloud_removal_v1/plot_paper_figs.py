@@ -715,8 +715,124 @@ def fig3_qualitative_grid(args, out_dir: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Block 5 onwards (Fig 4 ablation bars, Fig 5 federated, Fig 6 energy,
-# tables, main wiring updates) — TBD.
+# Block 5 — Fig 4 ablation bars (A1 vs B1 / B2 / B3, PSNR + SSIM)
+# ---------------------------------------------------------------------------
+
+def _smart_ylim(values: Sequence[float], pad: float
+                ) -> Tuple[float, float]:
+    """Auto Y-axis range so small ablation deltas are visible — pad below
+    min and above max, never going below 0."""
+    arr = np.array([v for v in values if v is not None and np.isfinite(v)],
+                   dtype=float)
+    if arr.size == 0:
+        return (0.0, 1.0)
+    lo = max(0.0, float(arr.min()) - pad)
+    hi = float(arr.max()) + pad
+    if hi - lo < 1e-6:
+        hi = lo + max(pad, 1e-3)
+    return (lo, hi)
+
+
+def fig4_ablation_bars(args, out_dir: Path) -> None:
+    """Two side-by-side subplots (PSNR | SSIM) comparing the full VLIFNet
+    (A1) against three ablations:
+
+        B1: −FSTA (FSTAModule + FreMLPBlock → Identity)
+        B2: −DualGroup (PixelShuffle spatial path removed)
+        B3: −MultiSpike4 (5-level → binary spikes)
+
+    Bar heights = ``best.psnr`` / ``best.ssim`` from each run's summary.json.
+    Top of each ablated bar carries a red ΔPSNR / ΔSSIM annotation
+    (negative deltas in red, positive in green — for the rare case an
+    ablation accidentally helps on noisy data).  A1's bar uses a ``//``
+    hatch to flag the "reference / full model" condition.
+
+    Skipped (with warning, no crash) if A1 summary is missing — there is
+    no reference to compute deltas against.
+    """
+    _setup_mpl()
+    import matplotlib.pyplot as plt
+
+    outputs_v1 = Path(args.outputs_v1)
+
+    # Pull (run_name, label, color) — ORDER FIXED for paper consistency.
+    spec = [
+        (args.run_a1, "Full",         PALETTE_BLUE,   True),   # ← reference
+        (args.run_b1, "−FSTA",        PALETTE_ORANGE, False),
+        (args.run_b2, "−DualGroup",   PALETTE_GREEN,  False),
+        (args.run_b3, "−MultiSpike4", PALETTE_GRAY,   False),
+    ]
+
+    # Load each summary; missing entries become None placeholders so the
+    # bar order remains stable on partial data.
+    rows: List[Tuple[str, str, Optional[float], Optional[float], bool]] = []
+    for run_name, label, color, is_ref in spec:
+        s = load_centralized_summary(outputs_v1, run_name)
+        if s is None:
+            rows.append((label, color, None, None, is_ref))
+            continue
+        best = s.get("best", {}) or {}
+        psnr = best.get("psnr"); ssim = best.get("ssim")
+        rows.append((label, color,
+                     None if psnr is None or not np.isfinite(psnr) else float(psnr),
+                     None if ssim is None or not np.isfinite(ssim) else float(ssim),
+                     is_ref))
+
+    a1_psnr = rows[0][2]; a1_ssim = rows[0][3]
+    if a1_psnr is None and a1_ssim is None:
+        _warn("Fig 4: A1 summary missing or empty; cannot compute deltas — skipping")
+        return
+
+    fig, axes = plt.subplots(1, 2, figsize=FIG_DOUBLE_COL, sharey=False)
+
+    metrics = [
+        ("PSNR (dB)", [r[2] for r in rows], a1_psnr, 1.0,  "{:+.2f} dB"),
+        ("SSIM",      [r[3] for r in rows], a1_ssim, 0.02, "{:+.4f}"),
+    ]
+
+    x = np.arange(len(rows))
+
+    for ax, (ylabel, values, ref, pad, fmt) in zip(axes, metrics):
+        ax.grid(True, axis="y", which="major")
+        ax.set_axisbelow(True)
+        ax.set_ylabel(ylabel)
+        ax.set_xticks(x)
+        ax.set_xticklabels([r[0] for r in rows], rotation=15, ha="right")
+
+        # Plot bars individually so each gets the right color + optional hatch.
+        for i, ((label, color, psnr, ssim, is_ref), val) in enumerate(zip(rows, values)):
+            if val is None:
+                # Draw a faint placeholder bar so X-axis spacing stays correct.
+                ax.bar(i, 0.0, color="none", edgecolor=PALETTE_GRAY,
+                       linewidth=0.6, hatch="..")
+                ax.text(i, 0.0, "no data", ha="center", va="bottom",
+                        fontsize=7, color=PALETTE_GRAY, rotation=0)
+                continue
+            kwargs = dict(color=color, edgecolor="black", linewidth=0.6)
+            if is_ref:
+                kwargs["hatch"] = "//"
+            ax.bar(i, val, **kwargs)
+
+            # Delta annotation (red on regression, green on improvement).
+            if not is_ref and ref is not None:
+                delta = val - ref
+                ann_color = "#C62828" if delta < 0 else "#2E7D32"
+                ax.text(i, val, fmt.format(delta),
+                        ha="center", va="bottom",
+                        fontsize=7.5, fontweight="bold", color=ann_color)
+
+        ax.set_ylim(*_smart_ylim(values, pad=pad))
+
+    axes[0].set_title("(a) PSNR")
+    axes[1].set_title("(b) SSIM")
+
+    fig.tight_layout(pad=0.4)
+    _save_pdf(fig, out_dir / "fig4_ablation_bars.pdf")
+    plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
+# Block 6 onwards (Fig 5 federated curves, Fig 6 energy, tables) — TBD.
 # ---------------------------------------------------------------------------
 
 
@@ -724,7 +840,8 @@ _FIG_REGISTRY = {
     # Populated incrementally as each block lands:
     2: ("fig2_centralized_curves", "fig2_centralized_curves.pdf"),
     3: ("fig3_qualitative_grid",   "fig3_qualitative_grid.pdf"),
-    # 4, 5, 6 → wired in later blocks.
+    4: ("fig4_ablation_bars",      "fig4_ablation_bars.pdf"),
+    # 5, 6 → wired in later blocks.
 }
 
 
@@ -741,6 +858,7 @@ def main(argv=None) -> None:
     impls = {
         2: fig2_centralized_curves,
         3: fig3_qualitative_grid,
+        4: fig4_ablation_bars,
     }
 
     produced: List[str] = []
