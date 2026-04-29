@@ -974,7 +974,107 @@ def fig5_federated_curves(args, out_dir: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Block 7 onwards (Fig 6 energy, tables, README polish) — TBD.
+# Block 7 — Fig 6 energy bars (ANN vs SNN-upper vs SNN-lower, log Y)
+# ---------------------------------------------------------------------------
+
+def _fmt_pj(value: float) -> str:
+    """Compact engineering notation for pJ values (used in bar-top labels)."""
+    if value <= 0:
+        return "0"
+    if value >= 1e9:
+        return f"{value / 1e9:.2f} nJ"
+    if value >= 1e6:
+        return f"{value / 1e6:.2f} μJ"        # micro-Joule
+    if value >= 1e3:
+        return f"{value / 1e3:.2f} nJ"
+    return f"{value:.2f} pJ"
+
+
+def fig6_energy_bars(args, out_dir: Path) -> None:
+    """Three-bar comparison of per-image inference energy::
+
+        ANN          = total_macs × ann_pj_per_mac      (4.6 pJ/MAC by default)
+        SNN-upper    = effective_acs × ann_pj_per_mac   (conservative)
+        SNN-lower    = effective_acs × ac_pj_per_op     (0.9 pJ/AC, optimistic)
+
+    The two SNN bars bracket the true energy under the multi-level
+    MultiSpike4 quantisation (binary AC formulae understate cost; full
+    MAC formulae overstate it).  See the §V energy section in the paper.
+
+    Each bar is annotated with both the engineering-formatted absolute
+    value (top) and the ratio to ANN (bottom of the label).  A dashed
+    horizontal line at the ANN level is drawn behind the bars as a
+    reference.  Y-axis is log-scaled.
+    """
+    _setup_mpl()
+    import matplotlib.pyplot as plt
+
+    energy_dir = Path(args.energy_dir)
+    summary = load_energy_summary(energy_dir)
+    if summary is None:
+        return
+
+    bounds = summary["energy_per_image"]
+    ann   = float(bounds.get("energy_ann_pj", 0.0) or 0.0)
+    upper = float(bounds.get("energy_snn_upper_pj", 0.0) or 0.0)
+    lower = float(bounds.get("energy_snn_lower_pj", 0.0) or 0.0)
+
+    if ann <= 0 and upper <= 0 and lower <= 0:
+        _warn(f"Fig 6: all energy fields zero/negative in {energy_dir}; skipping")
+        return
+
+    bars = [
+        ("ANN baseline\n(4.6 pJ/MAC)",          ann,   PALETTE_ORANGE,
+            dict(edgecolor="black", linewidth=0.6)),
+        ("SNN upper\n(conservative)",           upper, PALETTE_BLUE,
+            dict(edgecolor=PALETTE_BLUE, linewidth=0.6,
+                 linestyle="--", facecolor="white", hatch="///")),
+        ("SNN lower\n(0.9 pJ/AC)",              lower, PALETTE_BLUE,
+            dict(edgecolor="black", linewidth=0.6)),
+    ]
+
+    fig, ax = plt.subplots(figsize=FIG_SINGLE_COL)
+    ax.grid(True, axis="y", which="both", linewidth=0.3, alpha=0.4)
+    ax.set_axisbelow(True)
+    ax.set_yscale("log")
+    ax.set_ylabel("Energy per image (pJ)")
+
+    x = np.arange(len(bars))
+    for i, (label, value, color, style) in enumerate(bars):
+        # On log scale, bottom must be > 0 — clip tiny values to a small floor.
+        floor = max(1e-3, 0.5 * min((v for _, v, _, _ in bars if v > 0), default=1.0))
+        plot_v = max(value, floor)
+        kwargs = dict(color=color)
+        kwargs.update(style)
+        ax.bar(i, plot_v, **kwargs)
+
+        if value > 0:
+            txt = _fmt_pj(value)
+            if ann > 0 and i != 0:
+                txt += f"\n({value / ann:.2f}× ANN)"   # ×
+            ax.text(i, plot_v, txt, ha="center", va="bottom",
+                    fontsize=7.5, fontweight="bold")
+        else:
+            ax.text(i, floor, "n/a", ha="center", va="bottom",
+                    fontsize=7.5, color=PALETTE_GRAY)
+
+    if ann > 0:
+        ax.axhline(ann, color=PALETTE_ORANGE, linewidth=0.8,
+                   linestyle="--", alpha=0.6, zorder=0)
+
+    ax.set_xticks(x)
+    ax.set_xticklabels([b[0] for b in bars], fontsize=7.5)
+    # Headroom for top labels on log scale.
+    cur_lo, cur_hi = ax.get_ylim()
+    ax.set_ylim(cur_lo, cur_hi * 4.0)
+
+    fig.tight_layout(pad=0.3)
+    _save_pdf(fig, out_dir / "fig6_energy_bars.pdf")
+    plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
+# Block 8 onwards (LaTeX tables: tab1, tab2, tab3, main wiring) — TBD.
 # ---------------------------------------------------------------------------
 
 
@@ -984,7 +1084,7 @@ _FIG_REGISTRY = {
     3: ("fig3_qualitative_grid",   "fig3_qualitative_grid.pdf"),
     4: ("fig4_ablation_bars",      "fig4_ablation_bars.pdf"),
     5: ("fig5_federated_curves",   "fig5_federated_curves.pdf"),
-    # 6 → wired in later block.
+    6: ("fig6_energy_bars",        "fig6_energy_bars.pdf"),
 }
 
 
@@ -1003,6 +1103,7 @@ def main(argv=None) -> None:
         3: fig3_qualitative_grid,
         4: fig4_ablation_bars,
         5: fig5_federated_curves,
+        6: fig6_energy_bars,
     }
 
     produced: List[str] = []
