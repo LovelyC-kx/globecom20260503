@@ -487,15 +487,244 @@ def fig2_centralized_curves(args, out_dir: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Block 4 onwards (Fig 3 qualitative grid, Fig 4 ablation bars,
-# Fig 5 federated curves, Fig 6 energy bars, tables, main) — TBD.
+# Block 4 — Fig 3 qualitative grid (4 test images × 4 columns)
+# ---------------------------------------------------------------------------
+
+def _psnr_uint01(pred: np.ndarray, target: np.ndarray) -> float:
+    """PSNR for two float32 [H, W, 3] arrays in [0, 1].  +inf when equal."""
+    mse = float(np.mean((pred - target) ** 2))
+    if mse <= 0.0:
+        return float("inf")
+    return 20.0 * float(np.log10(1.0)) - 10.0 * float(np.log10(mse))
+
+
+def _score_cloud_severity(cloudy: np.ndarray, clear: np.ndarray) -> float:
+    """Higher = harder image (more cloud coverage / larger cloudy-vs-GT
+    deviation).  Use the L2 distance between normalised cloudy and clear
+    arrays — a robust proxy that does not require explicit cloud masks.
+    """
+    return float(np.sqrt(np.mean((cloudy - clear) ** 2)))
+
+
+def _select_test_indices(test_ds,
+                         n: int = 4,
+                         seed: int = 0,
+                         topk_mult: int = 3) -> List[int]:
+    """Deterministic + cloud-coverage-biased selection.
+
+    Steps:
+        1. Score every test pair by cloud severity (L2 cloudy-vs-GT).
+        2. Take the top ``n * topk_mult`` indices (most cloudy).
+        3. From that subset, sample ``n`` with a fixed-seed RNG so we
+           still get a *deterministic* selection while not always picking
+           the absolute top-N (avoids overcrowding visually-similar imgs).
+    """
+    if n <= 0:
+        return []
+    n_total = len(test_ds)
+    if n_total == 0:
+        return []
+    if n_total <= n:
+        return list(range(n_total))
+
+    scores = np.empty(n_total, dtype=np.float64)
+    for i in range(n_total):
+        cloudy_t, clear_t = test_ds[i]
+        cl  = cloudy_t.permute(1, 2, 0).cpu().numpy()
+        gt  = clear_t.permute(1, 2, 0).cpu().numpy()
+        scores[i] = _score_cloud_severity(cl, gt)
+
+    topk = min(n_total, max(n, n * topk_mult))
+    top_idx = np.argsort(-scores)[:topk]
+    rng = np.random.RandomState(seed)
+    chosen = rng.choice(top_idx, size=n, replace=False)
+    return sorted(chosen.tolist())
+
+
+def _infer_image(model, x_chw: "torch.Tensor", device: "torch.device",
+                 is_snn: bool) -> np.ndarray:
+    """Run a single full-resolution image through ``model`` and return a
+    [H, W, 3] float32 array in [0, 1].
+
+    Mirrors v1's task.py contract: ``reset_net`` BEFORE and AFTER the
+    forward pass when the backbone is spiking; no-op for ANN / Plain.
+    """
+    import torch
+    model.eval()
+    if is_snn:
+        from spikingjelly.activation_based import functional
+        functional.reset_net(model)
+    with torch.no_grad():
+        x = x_chw.unsqueeze(0).to(device)
+        # Both PlainUNet and VLIFNet require H, W divisible by 4 — let the
+        # model assertion fire if violated; we don't silently pad here.
+        y = model(x)
+    if is_snn:
+        from spikingjelly.activation_based import functional
+        functional.reset_net(model)
+    y = y.detach().clamp(0.0, 1.0).squeeze(0).permute(1, 2, 0).cpu().numpy()
+    return y.astype(np.float32, copy=False)
+
+
+def _resolve_qual_root(args, cfg: Optional[Dict]) -> Optional[str]:
+    """Pick the test-set root for Fig 3 — explicit CLI flag first, else
+    the data_root saved inside the A1 ckpt's config."""
+    if args.qual_dataset_root:
+        return args.qual_dataset_root
+    if cfg is not None and isinstance(cfg.get("data_root"), str):
+        return cfg["data_root"]
+    return None
+
+
+def fig3_qualitative_grid(args, out_dir: Path) -> None:
+    """4 rows × 4 columns: Cloudy | VLIFNet | PlainUNet | Ground Truth.
+
+    Each VLIFNet / PlainUNet cell shows a *prominent* PSNR label
+    (top-left, white text on a dark filled rectangle) computed against
+    the cell's ground truth.  Test images are selected deterministically
+    via ``_select_test_indices`` (top-cloud-coverage bias + seed sample).
+
+    Inputs (any of these missing → skip with warning, do not crash):
+      * VLIFNet best ckpt   = Outputs_v1/centralized_<run_a1>_best.pt
+      * PlainUNet best ckpt = Outputs_v1/centralized_<run_c2_cr1>_best.pt
+      * Test dataset root   = --qual_dataset_root (else from A1 ckpt's
+                              saved config['data_root'])
+
+    Output: ``out_dir/fig3_qualitative_grid.pdf``.
+    """
+    _setup_mpl()
+    import matplotlib.pyplot as plt
+    import torch
+
+    outputs_v1 = Path(args.outputs_v1)
+    device = torch.device(args.device)
+
+    # 1) Load both ckpts.
+    a1_ckpt = outputs_v1 / f"centralized_{args.run_a1}_best.pt"
+    c2_ckpt = outputs_v1 / f"centralized_{args.run_c2_cr1}_best.pt"
+    a1_loaded = load_ckpt_for_inference(a1_ckpt, device)
+    c2_loaded = load_ckpt_for_inference(c2_ckpt, device)
+    if a1_loaded is None and c2_loaded is None:
+        _warn("Fig 3: both VLIFNet and PlainUNet ckpts missing; skipping figure")
+        return
+    a1_model, a1_cfg, a1_is_snn = a1_loaded if a1_loaded else (None, None, False)
+    c2_model, c2_cfg, c2_is_snn = c2_loaded if c2_loaded else (None, None, False)
+
+    # 2) Resolve test-set root (CLI override > A1 cfg > C2 cfg).
+    root = _resolve_qual_root(args, a1_cfg) or _resolve_qual_root(args, c2_cfg)
+    if root is None:
+        _warn("Fig 3: no test dataset root resolvable (try --qual_dataset_root); "
+              "skipping figure")
+        return
+
+    # 3) Build full-resolution test set (patch_size=None) and pick rows.
+    try:
+        from cloud_removal_v1.dataset import (
+            PairedCloudDataset, derived_train_test_split,
+        )
+        try:
+            test_ds = PairedCloudDataset(root, split="test", patch_size=None)
+        except FileNotFoundError:
+            _, test_sub = derived_train_test_split(
+                root, patch_size_train=64, test_ratio=0.2, seed=args.qual_seed)
+            test_ds = test_sub
+    except Exception as e:                        # noqa: BLE001
+        _warn(f"Fig 3: cannot open test set at {root}: "
+              f"{type(e).__name__}: {e}; skipping figure")
+        return
+
+    n_rows = max(1, args.qual_n_samples)
+    indices = _select_test_indices(test_ds, n=n_rows, seed=args.qual_seed)
+    if not indices:
+        _warn("Fig 3: empty test set; skipping figure")
+        return
+
+    # 4) Render grid.
+    cols = ["Cloudy", "VLIFNet (ours)", "PlainUNet", "Ground Truth"]
+    n_cols = len(cols)
+    fig, axes = plt.subplots(
+        len(indices), n_cols,
+        figsize=(FIG_GRID[0], 1.85 * len(indices)),
+        squeeze=False,
+    )
+
+    for r, idx in enumerate(indices):
+        cloudy_t, clear_t = test_ds[idx]
+        cloudy_img = cloudy_t.permute(1, 2, 0).cpu().numpy().astype(np.float32)
+        clear_img  = clear_t.permute(1, 2, 0).cpu().numpy().astype(np.float32)
+
+        if a1_model is not None:
+            try:
+                vlif_img = _infer_image(a1_model, cloudy_t, device, a1_is_snn)
+            except Exception as e:                # noqa: BLE001
+                _warn(f"Fig 3 row {r}: VLIFNet inference failed "
+                      f"({type(e).__name__}: {e}); blanking cell")
+                vlif_img = None
+        else:
+            vlif_img = None
+
+        if c2_model is not None:
+            try:
+                plain_img = _infer_image(c2_model, cloudy_t, device, c2_is_snn)
+            except Exception as e:                # noqa: BLE001
+                _warn(f"Fig 3 row {r}: PlainUNet inference failed "
+                      f"({type(e).__name__}: {e}); blanking cell")
+                plain_img = None
+        else:
+            plain_img = None
+
+        cells = [
+            (cloudy_img, None),
+            (vlif_img,   _psnr_uint01(vlif_img, clear_img)
+                         if vlif_img is not None else None),
+            (plain_img,  _psnr_uint01(plain_img, clear_img)
+                         if plain_img is not None else None),
+            (clear_img,  None),
+        ]
+
+        for c, (img, psnr) in enumerate(cells):
+            ax = axes[r, c]
+            ax.set_xticks([]); ax.set_yticks([])
+            for spine in ax.spines.values():
+                spine.set_linewidth(0.4)
+                spine.set_color("#444444")
+            if img is None:
+                ax.set_facecolor("#f0f0f0")
+                ax.text(0.5, 0.5, "—", transform=ax.transAxes,
+                        ha="center", va="center",
+                        color=PALETTE_GRAY, fontsize=14)
+            else:
+                ax.imshow(np.clip(img, 0.0, 1.0), interpolation="nearest")
+                if psnr is not None:
+                    # Prominent: bold, top-left, white-on-black filled box.
+                    ax.text(0.04, 0.92,
+                            f"{psnr:.2f} dB",
+                            transform=ax.transAxes,
+                            ha="left", va="top",
+                            fontsize=10, fontweight="bold", color="white",
+                            bbox=dict(boxstyle="round,pad=0.18",
+                                      facecolor="black",
+                                      edgecolor="none",
+                                      alpha=0.72))
+            if r == 0:
+                ax.set_title(cols[c], fontsize=10)
+
+    fig.tight_layout(pad=0.25)
+    _save_pdf(fig, out_dir / "fig3_qualitative_grid.pdf")
+    plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
+# Block 5 onwards (Fig 4 ablation bars, Fig 5 federated, Fig 6 energy,
+# tables, main wiring updates) — TBD.
 # ---------------------------------------------------------------------------
 
 
 _FIG_REGISTRY = {
     # Populated incrementally as each block lands:
     2: ("fig2_centralized_curves", "fig2_centralized_curves.pdf"),
-    # 3, 4, 5, 6 → wired in later blocks.
+    3: ("fig3_qualitative_grid",   "fig3_qualitative_grid.pdf"),
+    # 4, 5, 6 → wired in later blocks.
 }
 
 
@@ -511,6 +740,7 @@ def main(argv=None) -> None:
     # Currently-implemented dispatch.
     impls = {
         2: fig2_centralized_curves,
+        3: fig3_qualitative_grid,
     }
 
     produced: List[str] = []
@@ -520,12 +750,22 @@ def main(argv=None) -> None:
         if fn is None:
             skipped.append(f"Fig{fid} (not yet implemented)")
             continue
+        out_name = _FIG_REGISTRY[fid][1]
+        out_path = out_dir / out_name
+        # Snapshot mtime so we can detect "function returned without
+        # actually writing the file" (early-return on missing inputs).
+        before_mtime = out_path.stat().st_mtime if out_path.exists() else None
         try:
             fn(args, out_dir)
-            produced.append(_FIG_REGISTRY[fid][1])
         except Exception as e:                # noqa: BLE001
             _warn(f"Fig{fid} failed: {type(e).__name__}: {e}")
             skipped.append(f"Fig{fid} (error)")
+            continue
+        after_mtime = out_path.stat().st_mtime if out_path.exists() else None
+        if after_mtime is not None and after_mtime != before_mtime:
+            produced.append(out_name)
+        else:
+            skipped.append(f"Fig{fid} (skipped — missing inputs)")
 
     _log(f"produced: {produced or '(none)'}")
     if skipped:
