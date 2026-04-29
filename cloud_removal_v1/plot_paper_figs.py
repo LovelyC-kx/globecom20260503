@@ -832,7 +832,149 @@ def fig4_ablation_bars(args, out_dir: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Block 6 onwards (Fig 5 federated curves, Fig 6 energy, tables) — TBD.
+# Block 6 — Fig 5 federated convergence curves + cumulative-comm inset
+# ---------------------------------------------------------------------------
+
+def _per_plane_to_matrix(arr) -> Optional[np.ndarray]:
+    """Convert run_smoke's object-dtype ``per_plane_psnr`` / ``per_plane_ssim``
+    array (shape (n_epochs, n_planes), each cell a Python scalar) into a
+    homogeneous float64 matrix.  Returns None if the structure is unusable.
+    """
+    if arr is None:
+        return None
+    try:
+        rows: List[List[float]] = []
+        for ep_row in np.atleast_1d(arr):
+            # Each row is itself an iterable of per-plane scalars.
+            vals = np.asarray(list(ep_row), dtype=np.float64).ravel()
+            rows.append(vals.tolist())
+    except Exception:                              # noqa: BLE001
+        return None
+    if not rows:
+        return None
+    n_planes = max(len(r) for r in rows)
+    if n_planes == 0:
+        return None
+    out = np.full((len(rows), n_planes), np.nan, dtype=np.float64)
+    for i, r in enumerate(rows):
+        out[i, : len(r)] = r
+    return out
+
+
+def fig5_federated_curves(args, out_dir: Path) -> None:
+    """Single-panel PSNR-vs-round overlay for the three federated runs::
+
+        F_SNN  (blue   'o')   — VLIFNet-SNN
+        F_ANN  (orange 's')   — VLIFNet-ANN
+        F_plain(green  'D')   — PlainUNet baseline
+
+    Per-plane shading: ``fill_between(min, max)`` over per-plane PSNR
+    arrays at α=0.18, drawn behind each mean curve.
+
+    Inset (lower-right): cumulative communication volume in MB on a log
+    Y-axis — strengthens the "VLIFNet does NOT cost more bandwidth than
+    its ANN twin" claim referenced in §V.
+
+    Skipped (no crash) only when ALL THREE runs are missing.
+    """
+    _setup_mpl()
+    import matplotlib.pyplot as plt
+    from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+
+    outputs_v2 = Path(args.outputs_v2)
+
+    spec = [
+        (args.run_f_snn,   "F-SNN (VLIFNet)",      PALETTE_BLUE,   "o"),
+        (args.run_f_ann,   "F-ANN (VLIFNet ReLU)", PALETTE_ORANGE, "s"),
+        (args.run_f_plain, "F-Plain (PlainUNet)",  PALETTE_GREEN,  "D"),
+    ]
+
+    drawn: List[Tuple[str, np.ndarray, np.ndarray]] = []   # (label, rounds, comm_cum_MB)
+    fig, ax = plt.subplots(figsize=FIG_SINGLE_COL)
+    ax.grid(True, which="major")
+    ax.set_xlabel("Communication round")
+    ax.set_ylabel("PSNR (dB)")
+
+    legend_handles, legend_labels = [], []
+
+    for run_name, label, color, marker in spec:
+        d = load_federated_npz(outputs_v2, run_name,
+                               bn_mode=args.f_bn, scheme=args.f_scheme)
+        if d is None:
+            continue
+        rounds = d.get("epochs")
+        if rounds is None or rounds.size == 0:
+            _warn(f"Fig 5: {run_name} has no rounds; skipping curve")
+            continue
+        rounds = np.asarray(rounds, dtype=np.float64)
+
+        # Prefer per-plane mean+envelope; fall back to flat eval_psnr if
+        # per_plane_psnr is unusable (older runs / single-plane configs).
+        per_plane = _per_plane_to_matrix(d.get("per_plane_psnr"))
+        if per_plane is not None and per_plane.shape[0] == rounds.size:
+            mean_psnr = np.nanmean(per_plane, axis=1)
+            lo = np.nanmin(per_plane, axis=1)
+            hi = np.nanmax(per_plane, axis=1)
+            ax.fill_between(rounds, lo, hi, color=color, alpha=0.18,
+                            linewidth=0.0)
+        else:
+            psnr_flat = d.get("eval_psnr")
+            if psnr_flat is None:
+                _warn(f"Fig 5: {run_name} missing eval_psnr; skipping curve")
+                continue
+            mean_psnr = np.asarray(psnr_flat, dtype=np.float64)
+
+        mev = _smart_marker_every(rounds.size)
+        (ln,) = ax.plot(rounds, mean_psnr,
+                        color=color, marker=marker, markevery=mev,
+                        label=label, linestyle="-")
+        legend_handles.append(ln); legend_labels.append(label)
+
+        comm = d.get("comm_bytes")
+        if comm is not None and comm.size == rounds.size:
+            comm_cum_MB = np.cumsum(np.asarray(comm, dtype=np.float64)) / (1024.0 ** 2)
+            drawn.append((label, rounds, comm_cum_MB))
+        else:
+            drawn.append((label, rounds, None))
+
+    if not legend_handles:
+        _warn("Fig 5: no federated runs found; skipping figure")
+        plt.close(fig)
+        return
+
+    ax.legend(legend_handles, legend_labels, loc="lower right",
+              ncol=1)
+    ax.margins(x=0.02)
+
+    # tight_layout BEFORE adding the inset — inset_axes confuses
+    # matplotlib's tight_layout solver and triggers a benign warning.
+    fig.tight_layout(pad=0.3)
+
+    # Inset — cumulative communication in MB, log scale.
+    if any(c is not None for _, _, c in drawn):
+        ax_in = inset_axes(ax, width="38%", height="32%",
+                           loc="upper left",
+                           bbox_to_anchor=(0.06, -0.04, 1.0, 1.0),
+                           bbox_transform=ax.transAxes,
+                           borderpad=0.0)
+        for (label, rounds, comm_cum), (_, _, color, _) in zip(drawn, spec):
+            if comm_cum is None:
+                continue
+            ax_in.plot(rounds, comm_cum, color=color, linewidth=1.0)
+        ax_in.set_yscale("log")
+        ax_in.set_xlabel("round", fontsize=6)
+        ax_in.set_ylabel("MB (log)", fontsize=6)
+        ax_in.tick_params(axis="both", which="both", labelsize=6, length=2)
+        for spine in ax_in.spines.values():
+            spine.set_linewidth(0.4)
+        ax_in.grid(True, which="both", linewidth=0.3, alpha=0.4)
+
+    _save_pdf(fig, out_dir / "fig5_federated_curves.pdf")
+    plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
+# Block 7 onwards (Fig 6 energy, tables, README polish) — TBD.
 # ---------------------------------------------------------------------------
 
 
@@ -841,7 +983,8 @@ _FIG_REGISTRY = {
     2: ("fig2_centralized_curves", "fig2_centralized_curves.pdf"),
     3: ("fig3_qualitative_grid",   "fig3_qualitative_grid.pdf"),
     4: ("fig4_ablation_bars",      "fig4_ablation_bars.pdf"),
-    # 5, 6 → wired in later blocks.
+    5: ("fig5_federated_curves",   "fig5_federated_curves.pdf"),
+    # 6 → wired in later block.
 }
 
 
@@ -859,6 +1002,7 @@ def main(argv=None) -> None:
         2: fig2_centralized_curves,
         3: fig3_qualitative_grid,
         4: fig4_ablation_bars,
+        5: fig5_federated_curves,
     }
 
     produced: List[str] = []
