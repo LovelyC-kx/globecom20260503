@@ -304,17 +304,232 @@ def load_ckpt_for_inference(ckpt_path: Path,
 
 
 # ---------------------------------------------------------------------------
-# Block 3 onwards (style helpers, fig fns, table fns, main wiring)
-# will be appended by subsequent commits — see plan in chat.
+# Block 3 — global style helpers + Fig 2 (centralized training curves)
+# ---------------------------------------------------------------------------
+
+_MPL_INITIALISED = False
+
+
+def _setup_mpl() -> None:
+    """Apply global matplotlib rcParams once.  Idempotent — repeat calls
+    are cheap, so figure functions can call this freely on entry.
+
+    Style targets IEEE 2-column conference proceedings:
+      * STIXGeneral font (Times-like, math-compatible)
+      * Vector PDF backend (Agg buffer)
+      * 0.6 pt axes / 0.5 pt grid / 1.4 pt curves / 5.5 pt markers
+      * 8 pt tick labels, 9 pt axis labels, 10 pt panel titles
+      * legend frameon=False, fancybox=False
+    """
+    global _MPL_INITIALISED
+    if _MPL_INITIALISED:
+        return
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    plt.rcParams.update({
+        "font.family":         "STIXGeneral",
+        "mathtext.fontset":    "stix",
+        "pdf.fonttype":        42,        # TrueType fonts (editable in Illustrator)
+        "ps.fonttype":         42,
+        "axes.linewidth":      0.6,
+        "axes.titlesize":      10,
+        "axes.labelsize":      9,
+        "xtick.labelsize":     8,
+        "ytick.labelsize":     8,
+        "xtick.major.width":   0.6,
+        "ytick.major.width":   0.6,
+        "xtick.major.size":    3.0,
+        "ytick.major.size":    3.0,
+        "xtick.direction":     "in",
+        "ytick.direction":     "in",
+        "legend.fontsize":     8,
+        "legend.frameon":      False,
+        "legend.fancybox":     False,
+        "legend.handlelength": 1.6,
+        "legend.handletextpad": 0.4,
+        "legend.columnspacing": 0.9,
+        "lines.linewidth":     1.4,
+        "lines.markersize":    5.5,
+        "lines.markeredgewidth": 0.0,
+        "grid.linewidth":      0.4,
+        "grid.linestyle":      "--",
+        "grid.alpha":          0.4,
+        "savefig.bbox":        "tight",
+        "savefig.pad_inches":  0.02,
+    })
+    _MPL_INITIALISED = True
+
+
+def _save_pdf(fig, out_path: Path) -> None:
+    """Vector PDF write at 600 dpi (raster fallbacks crisp on print)."""
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, format="pdf", dpi=600)
+    _log(f"wrote {out_path}")
+
+
+def _annotate_panel(ax, label: str,
+                    x: float = 0.04, y: float = 0.95) -> None:
+    """Add ``(a)`` / ``(b)`` panel label in axes-fraction coords (top-left)."""
+    ax.text(x, y, label, transform=ax.transAxes,
+            fontsize=10, fontweight="bold", va="top", ha="left")
+
+
+def _smart_marker_every(n_points: int,
+                        target_count: int = MARKER_TARGET_COUNT) -> int:
+    """Choose ``markevery`` so each curve has ~target markers regardless
+    of the number of evaluated epochs / rounds.  Always returns >=1."""
+    if n_points <= target_count:
+        return 1
+    return max(1, n_points // target_count)
+
+
+def _finite(epoch: np.ndarray, value: np.ndarray
+            ) -> Tuple[np.ndarray, np.ndarray]:
+    """Filter (epoch, value) to indices where value is finite — train_centralized
+    writes NaN on epochs where eval was skipped (eval_every > 1)."""
+    mask = np.isfinite(value)
+    return epoch[mask], value[mask]
+
+
+# ---------------------------------------------------------------------------
+# Fig 2 — centralized training curves (CR1, CR2 dual panel)
+# ---------------------------------------------------------------------------
+
+def fig2_centralized_curves(args, out_dir: Path) -> None:
+    """Two side-by-side panels showing PSNR-vs-epoch on CR1 (left) and CR2
+    (right).  Each panel overlays VLIFNet (blue, ``o``) and PlainUNet
+    (orange, ``s``) when their npz files are present.  If a panel has
+    NO data, it is annotated "no data" and the figure is still produced.
+
+    Reads from ``args.outputs_v1`` using run-name overrides ``args.run_a1``,
+    ``args.run_a2``, ``args.run_c2_cr1``, ``args.run_c2_cr2``.
+
+    Output: ``out_dir/fig2_centralized_curves.pdf``.
+    """
+    _setup_mpl()
+    import matplotlib.pyplot as plt
+
+    outputs_v1 = Path(args.outputs_v1)
+
+    # Per-panel curve specs: (run_name, label, color, marker)
+    panels = [
+        ("CR1", [
+            (args.run_a1,     "VLIFNet (ours)",  PALETTE_BLUE,   "o"),
+            (args.run_c2_cr1, "PlainUNet",       PALETTE_ORANGE, "s"),
+        ]),
+        ("CR2", [
+            (args.run_a2,     "VLIFNet (ours)",  PALETTE_BLUE,   "o"),
+            (args.run_c2_cr2, "PlainUNet",       PALETTE_ORANGE, "s"),
+        ]),
+    ]
+
+    fig, axes = plt.subplots(1, 2, figsize=FIG_DOUBLE_COL, sharey=False)
+
+    n_curves_total = 0
+    last_handles: List = []
+    last_labels:  List[str] = []
+
+    for ax, (panel_label, curves) in zip(axes, panels):
+        ax.grid(True, which="major")
+        ax.set_xlabel("Epoch")
+        ax.set_ylabel("PSNR (dB)")
+        ax.set_title(f"({'a' if panel_label == 'CR1' else 'b'}) {panel_label}")
+
+        n_drawn = 0
+        for run_name, label, color, marker in curves:
+            d = load_centralized_npz(outputs_v1, run_name)
+            if d is None:
+                continue
+            ep, psnr = _finite(d["epoch"], d["eval_psnr"])
+            if ep.size == 0:
+                _warn(f"{run_name}: no finite eval_psnr points; skipping curve")
+                continue
+            mev = _smart_marker_every(ep.size)
+            (ln,) = ax.plot(ep, psnr,
+                            color=color, marker=marker, markevery=mev,
+                            label=label, linestyle="-", clip_on=True)
+            n_drawn += 1
+            n_curves_total += 1
+            # Capture for shared legend (latest non-empty panel wins; both
+            # panels have identical curve specs anyway).
+            last_handles.append(ln)
+            last_labels.append(label)
+
+        if n_drawn == 0:
+            ax.text(0.5, 0.5, "no data", transform=ax.transAxes,
+                    ha="center", va="center", color=PALETTE_GRAY, fontsize=10)
+
+        # Auto-zoom Y-axis around the data so dB differences read cleanly.
+        ax.margins(x=0.02)
+
+    # Shared legend above the two panels (keeps panel area clean).
+    if last_handles:
+        # Deduplicate by label while preserving order.
+        seen = set()
+        uniq_h, uniq_l = [], []
+        for h, l in zip(last_handles, last_labels):
+            if l in seen:
+                continue
+            seen.add(l)
+            uniq_h.append(h)
+            uniq_l.append(l)
+        fig.legend(uniq_h, uniq_l,
+                   loc="upper center", bbox_to_anchor=(0.5, 1.04),
+                   ncol=len(uniq_l))
+
+    fig.tight_layout(pad=0.3)
+    if n_curves_total == 0:
+        _warn("Fig 2: no centralized curves found; saving empty figure")
+    _save_pdf(fig, out_dir / "fig2_centralized_curves.pdf")
+    plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
+# Block 4 onwards (Fig 3 qualitative grid, Fig 4 ablation bars,
+# Fig 5 federated curves, Fig 6 energy bars, tables, main) — TBD.
 # ---------------------------------------------------------------------------
 
 
+_FIG_REGISTRY = {
+    # Populated incrementally as each block lands:
+    2: ("fig2_centralized_curves", "fig2_centralized_curves.pdf"),
+    # 3, 4, 5, 6 → wired in later blocks.
+}
+
+
 def main(argv=None) -> None:
-    """Stub — will be filled in once all blocks are in place."""
+    """Dispatch the requested figures + tables (each guarded by try/except
+    so a single failing artefact does not abort the others)."""
     args = _parse_args(argv)
     fig_ids = _resolve_figs(args.figs)
-    _log(f"out_dir={args.out_dir}  figs={fig_ids}  tables={args.tables}")
-    _log("plot_paper_figs.py: skeleton only — fig/table generators not yet wired.")
+    out_dir = Path(args.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    _log(f"out_dir={out_dir}  figs={fig_ids}  tables={args.tables}")
+
+    # Currently-implemented dispatch.
+    impls = {
+        2: fig2_centralized_curves,
+    }
+
+    produced: List[str] = []
+    skipped: List[str] = []
+    for fid in fig_ids:
+        fn = impls.get(fid)
+        if fn is None:
+            skipped.append(f"Fig{fid} (not yet implemented)")
+            continue
+        try:
+            fn(args, out_dir)
+            produced.append(_FIG_REGISTRY[fid][1])
+        except Exception as e:                # noqa: BLE001
+            _warn(f"Fig{fid} failed: {type(e).__name__}: {e}")
+            skipped.append(f"Fig{fid} (error)")
+
+    _log(f"produced: {produced or '(none)'}")
+    if skipped:
+        _log(f"skipped : {skipped}")
 
 
 if __name__ == "__main__":
