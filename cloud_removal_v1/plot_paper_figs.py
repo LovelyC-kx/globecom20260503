@@ -75,13 +75,11 @@ FIG_GRID       = (7.2, 7.0)   # qualitative grid
 # Markers used at every Nth epoch / round.
 MARKERS = ("o", "s", "D", "^", "v")
 
-# Marker-every-N — set so each curve has ~20 markers regardless of length.
-# Combined with smaller markersize (4.0pt below) this gives a "data-rich"
-# visual density: 600-ep centralized curve → marker every ~30 epochs;
-# 200-round federated → marker every ~2 evaluations (essentially every
-# evaluated point is annotated).  Heavier than FLSNN's ~12 per curve;
-# the user explicitly requested denser.
-MARKER_TARGET_COUNT = 20
+# Marker-every-N — set so each curve has ~50 markers regardless of length.
+# Combined with markersize=2.5pt below this gives near-every-point density
+# without overcrowding: e.g. 600-ep Loss gets a marker every ~12 epochs,
+# 120-pt PSNR every ~2-3 points, 40-pt federated every 1 point.
+MARKER_TARGET_COUNT = 50
 
 
 # ---------------------------------------------------------------------------
@@ -360,7 +358,7 @@ def _setup_mpl() -> None:
         "legend.handletextpad": 0.4,
         "legend.columnspacing": 0.9,
         "lines.linewidth":     1.3,
-        "lines.markersize":    4.0,
+        "lines.markersize":    2.5,
         "lines.markeredgewidth": 0.0,
         "grid.linewidth":      0.4,
         "grid.linestyle":      "--",
@@ -968,9 +966,49 @@ def fig5_federated_curves(args, out_dir: Path) -> None:
         plt.close(fig)
         return
 
+    # Centralised baseline reference line — read PSNR_best from A1+A2
+    # and C2 summaries on disk, take the max across both Models for
+    # the joint-test "centralised upper bound".  Also draw a second
+    # dashed line for the PlainUNet centralised reference.  This
+    # gives Fig 5's single-curve early version meaningful context
+    # while waiting for the full SNN/ANN/α data to fill in.
+    outputs_v1 = Path(args.outputs_v1)
+    centr_refs = []
+    for run_name, label in [(args.run_a1, "OrbitVLIF (cent.)"),
+                             (args.run_c2_cr1, "PlainUNet (cent.)")]:
+        s = load_centralized_summary(outputs_v1, run_name)
+        if s is None:
+            continue
+        psnr = (s.get("best") or {}).get("psnr")
+        if psnr is None or not np.isfinite(psnr):
+            continue
+        centr_refs.append((float(psnr), label))
+    for psnr, lbl in centr_refs:
+        ax.axhline(psnr, color=PALETTE_GRAY, linewidth=0.8,
+                   linestyle=":", alpha=0.55, zorder=0)
+        ax.text(ax.get_xlim()[1], psnr, f"  {lbl}: {psnr:.2f} dB",
+                fontsize=6.5, color=PALETTE_GRAY, va="center", ha="left")
+
     ax.legend(legend_handles, legend_labels, loc="lower right",
               ncol=1)
     ax.margins(x=0.02)
+    # Tight Y-axis fit around actual data range so single-curve
+    # versions of this figure (only F_plain available) don't show a
+    # mostly-empty plot area.
+    ymins, ymaxs = [], []
+    for ln in legend_handles:
+        y = ln.get_ydata()
+        y = np.asarray(y, dtype=float)
+        y = y[np.isfinite(y)]
+        if y.size:
+            ymins.append(y.min())
+            ymaxs.append(y.max())
+    if centr_refs:
+        ymaxs.append(max(p for p, _ in centr_refs))
+    if ymins and ymaxs:
+        lo = min(ymins) - 0.4
+        hi = max(ymaxs) + 0.4
+        ax.set_ylim(lo, hi)
 
     # tight_layout BEFORE adding the inset — inset_axes confuses
     # matplotlib's tight_layout solver and triggers a benign warning.
@@ -1179,10 +1217,10 @@ def fig7_centralized_4panel(args, out_dir: Path) -> None:
             if y_f.size == 0:
                 continue
             y_smooth = _smooth(y_f, w=9 if kind == "loss" else 3)
-            mev = _smart_marker_every(ep_f.size, target_count=20)
+            mev = _smart_marker_every(ep_f.size, target_count=50)
             ax.plot(ep_f, y_smooth,
                     color=color, marker=marker, markevery=mev,
-                    label=label, linestyle="-", markersize=3.5,
+                    label=label, linestyle="-", markersize=2.5,
                     linewidth=1.3, clip_on=True)
             n_drawn += 1
 
