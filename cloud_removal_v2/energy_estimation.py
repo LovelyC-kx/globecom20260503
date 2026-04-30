@@ -8,14 +8,17 @@ Hooks every Conv2d / Linear's forward-pre and counts:
     of multiplications that actually fire when the upstream activation is
     spike-driven; for ANN inputs r_l ≈ 1 (RGB pixels rarely exact zero).
 
-Energy bounds, following [Horowitz 2014]:
+Energy bounds, following [Horowitz 2014] for ANN MAC and the
+neuromorphic / in-memory-computing SOP cost adopted by FLSNN /
+ESDNet / VLIF:
   * ANN:                 E_ANN = Σ MAC_l × 4.6 pJ
-  * SNN (binary lower):  E_SNN_lo = Σ r_l × MAC_l × 0.9 pJ
+  * SNN (deployment lo): E_SNN_lo = Σ r_l × MAC_l × 0.077 pJ   (= 77 fJ/SOP)
   * SNN (conservative):  E_SNN_up = Σ r_l × MAC_l × 4.6 pJ
                                     (treats every non-zero MultiSpike-4
                                      spike as a full multiplication —
-                                     pessimistic for hardware that exploits
-                                     2-bit shift-add arithmetic)
+                                     pessimistic upper bound on standard
+                                     CMOS without IMC support).
+  CLI flags --ann_pj_per_mac and --ac_pj_per_op override both.
 
 Also hooks every LIF / mem_update module to record per-layer mean output
 (effective firing rate including MultiSpike-4's non-binary levels) and
@@ -276,7 +279,7 @@ class EnergyMeter:
 # ---------------------------------------------------------------------------
 
 def _plot_energy_per_layer(rows: List[Dict], out_pdf: str,
-                           ann_pj: float = 4.6, ac_pj: float = 0.9) -> None:
+                           ann_pj: float = 4.6, ac_pj: float = 0.077) -> None:
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -290,8 +293,8 @@ def _plot_energy_per_layer(rows: List[Dict], out_pdf: str,
     idx = np.arange(len(rows))
     fig, ax = plt.subplots(figsize=(max(8, 0.45 * len(rows)), 5))
     bw = 0.4
-    ax.bar(idx - bw / 2, ann_e, bw, label="ANN (4.6 pJ/MAC)", color="#D95319")
-    ax.bar(idx + bw / 2, snn_e, bw, label="SNN lower (0.9 pJ/AC × r)", color="#0072BD")
+    ax.bar(idx - bw / 2, ann_e, bw, label=f"ANN ({ann_pj} pJ/MAC)", color="#D95319")
+    ax.bar(idx + bw / 2, snn_e, bw, label=f"SNN lower ({ac_pj} pJ/SOP × r)", color="#0072BD")
     ax.set_xticks(idx)
     ax.set_xticklabels(names, rotation=60, ha="right", fontsize=8)
     ax.set_ylabel("Energy per image (μJ)", fontsize=12)
@@ -479,9 +482,9 @@ def main(argv=None) -> None:
     print("\n=== Energy per image ===")
     print(f"  total ANN MACs        : {bounds['ann_macs']:,.0f}")
     print(f"  effective non-zero MAC: {bounds['snn_effective_acs']:,.0f}")
-    print(f"  E_ANN  (4.6 pJ/MAC)        : {bounds['energy_ann_pj']/1e6:.3f} μJ")
-    print(f"  E_SNN_lower (0.9 pJ/AC × r): {bounds['energy_snn_lower_pj']/1e6:.3f} μJ")
-    print(f"  E_SNN_upper (4.6 pJ/MAC × r): {bounds['energy_snn_upper_pj']/1e6:.3f} μJ")
+    print(f"  E_ANN  ({args.ann_pj_per_mac} pJ/MAC)        : {bounds['energy_ann_pj']/1e6:.3f} μJ")
+    print(f"  E_SNN_lower ({args.ac_pj_per_op} pJ/SOP × r): {bounds['energy_snn_lower_pj']/1e6:.3f} μJ")
+    print(f"  E_SNN_upper ({args.ann_pj_per_mac} pJ/MAC × r): {bounds['energy_snn_upper_pj']/1e6:.3f} μJ")
     if bounds["energy_snn_lower_pj"] > 0:
         ratio_lo = bounds["energy_ann_pj"] / bounds["energy_snn_lower_pj"]
         ratio_up = bounds["energy_ann_pj"] / max(bounds["energy_snn_upper_pj"], 1e-12)
@@ -491,7 +494,11 @@ def main(argv=None) -> None:
     # JSON dump
     summary = {
         "ckpt": os.path.abspath(args.ckpt),
-        "config": cfg,
+        "config": {
+            **(cfg if isinstance(cfg, dict) else {}),
+            "ann_pj_per_mac": float(args.ann_pj_per_mac),
+            "ac_pj_per_op":   float(args.ac_pj_per_op),
+        },
         "params_M": float(n_params / 1e6),
         "n_samples_evaluated": int(n_seen),
         "energy_per_image": bounds,
