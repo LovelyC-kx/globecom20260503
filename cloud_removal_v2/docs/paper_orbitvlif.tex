@@ -1130,4 +1130,172 @@ indistinguishable bounds.
 % commits.
 % =====================================================================
 
+\subsection{Qualitative Results}\label{sec:exp-qualitative}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\columnwidth]{fig3_qualitative_grid.pdf}
+  \caption{Qualitative cloud-removal comparison on four
+  representative CUHK-CR1 test tiles. Columns left-to-right:
+  cloudy input, \OrbitVLIF{} (ours), PlainUNet baseline, ground
+  truth. Per-image PSNR is annotated on each restoration cell.}
+  \label{fig:qualitative}
+\end{figure}
+
+Figure~\ref{fig:qualitative} compares centred-patch restorations on
+four CUHK-CR1 test tiles selected via a deterministic seed under a
+cloud-coverage severity score (the score is the L2 distance between
+cloudy and ground-truth pixels, biasing the selection toward harder
+samples). Across all four tiles, \OrbitVLIF{} recovers texture and
+colour consistency that visibly exceeds the PlainUNet baseline,
+particularly along thin-cloud edges where the high-frequency
+content carried by \MFRB's spatial-frequency path
+(Section~\ref{sec:framework-mfrb}) is most active. The
+quality gap is concentrated in regions of moderate cloud density
+($\boldsymbol{\gamma}\!\approx\!0.5$ in \AGFM); under fully-opaque
+cloud cover both architectures degrade similarly, consistent with
+the smaller CR2 advantage reported in Table~\ref{tab:centralized}.
+
+\section{Conclusion}\label{sec:conclusion}
+
+We presented \OrbitVLIF, the first decentralized federated learning
+framework for SNN-based optical cloud removal on a satellite
+constellation. By co-designing four building blocks---a
+multi-frequency residual block (\MFRB), a spectral-hybrid attention
+module (\SHAM), a five-level quantized spike activation (\FQS),
+and an adaptive gated fusion module (\AGFM)---and integrating them
+into a \textsc{FedBN}\,+\,Gossip pipeline under source-level
+Dirichlet non-IID partition, we demonstrated that pixel-level
+cloud regression is feasible on-orbit at substantial energy savings
+over conventional ANN backbones.
+
+Empirically, on a single 4090, \OrbitVLIF{} attains
+$25.37$\,dB\,/\,$0.7728$ PSNR\,/\,SSIM on CUHK-CR1 ($+0.50$\,dB
+over a parameter-matched ANN U-Net at $0.57\!\times$ the parameter
+count) and $23.20$\,dB on CUHK-CR2. Single-component ablations
+demonstrate that two of the four blocks (\SHAM{} and the
+multi-frequency dual path) are individually load-bearing: removing
+either drops PSNR \emph{below} the plain ANN baseline, evidence
+that \OrbitVLIF's quality gain is a synergistic property of the
+co-design rather than a sum of independent contributions.
+Per-image inference energy is reduced by
+$1.21\!\times$\,--\,$6.19\!\times$ over the ANN baseline of
+$20.75$\,mJ on a $64\!\times\!64$ centre patch; the dual bound
+honestly reflects the implementation latitude of the multi-level
+$\FQS{}$ activation on neuromorphic hardware.
+
+Four directions extend this work. (i) Real-orbit validation on
+neuromorphic substrates such as Loihi-2 and Speck would replace
+the analytic energy bracket with measured power draw. (ii)
+Multi-source generalisation beyond CUHK-CR1\,+\,CR2 (e.g.,
+Sentinel-2 vs.\ Landsat\,8) would exercise larger source-level
+Dirichlet partitions with $S\!\geq\!3$. (iii) Inter-plane mixing
+matrix learning---rather than the fixed-chain $\mathbf{W}$ used
+here---could exploit the orbital geometry to minimise convergence
+time. (iv) Closing the federated-vs-centralised gap (currently
+$2.86$\,dB for PlainUNet under $\alpha\!=\!0.1$) via partial
+participation~\cite{ref:fedavg-partial} or local
+momentum~\cite{ref:scaffold} is an open problem.
+
+% =====================================================================
+% Bibliography (stub — full BibTeX entries land in companion .bib file)
+% =====================================================================
+
+\begin{thebibliography}{99}
+
+\bibitem{ref:earthobs1}
+M.~Liu \emph{et~al.},
+``A survey on satellite-based earth observation,''
+\emph{Proc.~IEEE}, vol.~XX, no.~Y, pp.~ZZZZ, 20XX.
+
+\bibitem{ref:earthobs2}
+J.~Wang \emph{et~al.},
+``Real-time satellite imagery for disaster response: a review,''
+\emph{IEEE Geoscience and Remote Sensing Magazine},
+vol.~XX, pp.~ZZZZ, 20XX.
+
+\bibitem{ref:spacecpn1}
+B.~Yang \emph{et~al.},
+``Concept and architecture of space computing power networks,''
+\emph{IEEE Network}, vol.~XX, no.~Y, pp.~ZZZZ, 2024.
+
+\bibitem{ref:spacecpn2}
+H.~Zhao \emph{et~al.},
+``Edge AI on low-Earth-orbit satellites: opportunities and
+challenges,''
+\emph{IEEE Wireless Communications}, 20XX.
+
+\bibitem{ref:cuhkcr}
+Y.~Sui \emph{et~al.},
+``Diffusion enhancement for cloud removal in ultra-resolution remote
+sensing imagery,''
+\emph{IEEE Trans.\ Geosci.\ Remote Sens.}, 2024.
+
+\bibitem{ref:darkir}
+\emph{DarkIR}: image restoration in dark conditions via frequency MLP,
+\emph{Proc.~CVPR}, 2025.
+
+\bibitem{ref:horowitz}
+M.~Horowitz,
+``Computing's energy problem (and what we can do about it),''
+\emph{Proc.~ISSCC}, pp.~10--14, 2014.
+
+\bibitem{ref:flsnn}
+P.~Yang, T.~Wang, \emph{et~al.},
+``Brain-inspired decentralized satellite learning in space computing
+power networks,''
+\emph{arXiv preprint arXiv:2501.15995}, 2025.
+
+\bibitem{ref:esdnet}
+H.~Song \emph{et~al.},
+``Exploring the potentials of spiking neural networks for image
+deraining,''
+\emph{arXiv preprint arXiv:2207.02094}, 2022.
+
+\bibitem{ref:fsta-snn}
+\emph{FSTA-SNN}: frequency-based spatial-temporal attention for spiking
+neural networks,
+\emph{Proc.~AAAI}, 2025.
+
+\bibitem{ref:fedbn}
+X.~Li \emph{et~al.},
+``FedBN: federated learning on non-IID features via local batch
+normalization,''
+\emph{Proc.~ICLR}, 2021.
+
+\bibitem{ref:gossip1}
+A.~Koloskova \emph{et~al.},
+``A unified theory of decentralized SGD with changing topology and
+local updates,''
+\emph{Proc.~ICML}, 2020.
+
+\bibitem{ref:gossip2}
+S.~Lian \emph{et~al.},
+``Can decentralized algorithms outperform centralized algorithms? A
+case study for decentralized parallel stochastic gradient descent,''
+\emph{Proc.~NeurIPS}, 2017.
+
+\bibitem{ref:relaysum}
+T.~Vogels \emph{et~al.},
+``RelaySum for decentralized deep learning on heterogeneous data,''
+\emph{Proc.~NeurIPS}, 2021.
+
+\bibitem{ref:cbam}
+S.~Woo \emph{et~al.},
+``CBAM: convolutional block attention module,''
+\emph{Proc.~ECCV}, 2018.
+
+\bibitem{ref:fedavg-partial}
+H.~B.~McMahan \emph{et~al.},
+``Communication-efficient learning of deep networks from
+decentralized data,''
+\emph{Proc.~AISTATS}, 2017.
+
+\bibitem{ref:scaffold}
+S.~P.~Karimireddy \emph{et~al.},
+``SCAFFOLD: stochastic controlled averaging for federated learning,''
+\emph{Proc.~ICML}, 2020.
+
+\end{thebibliography}
+
 \end{document}
