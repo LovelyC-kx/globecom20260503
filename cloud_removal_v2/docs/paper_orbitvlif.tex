@@ -265,4 +265,133 @@ results. Section~\ref{sec:conclusion} concludes.
 % Section II: System Model lands in subsequent commits.
 % =====================================================================
 
+% =====================================================================
+% Section II: System Model
+% Strategy: build the scene (II-A) → state the optimisation problem
+% (II-B) → describe the four-step training procedure (II-C) → specify
+% the non-IID partition (II-D).  Every symbol is defined before use,
+% with explicit dimensions and physical meaning.
+% =====================================================================
+\section{System Model}\label{sec:sysmodel}
+
+\subsection{LEO Constellation and Inter-Satellite Links}\label{sec:sysmodel-constellation}
+
+We consider a Walker-Star LEO constellation
+\[
+\mathcal{S} \;=\; \big\{\, s_{i,k} \,:\, i \in \mathcal{N},\, k \in \mathcal{K}_i \,\big\},
+\]
+comprising $N \!=\! |\mathcal{N}|$ orbital planes with $K \!=\!
+|\mathcal{K}_i|$ satellites uniformly distributed in each plane. Each
+satellite $s_{i,k}$ is equipped with two types of inter-satellite
+laser links (ISLs)~\cite{ref:flsnn}: \emph{intra-plane} links connect
+adjacent satellites of the same plane and are quasi-stationary
+across orbital periods, supporting reliable ring-style aggregation;
+\emph{inter-plane} links connect satellites of distinct planes and
+are time-varying due to differential orbital motion, with
+feasibility bounded by the Doppler shift. Following the standard
+configuration in~\cite{ref:flsnn} we instantiate $N \!=\! 5$, $K \!=\!
+10$, yielding $NK \!=\! 50$ satellites and a fixed inter-plane
+chain topology.
+
+\subsection{Federated Cloud-Removal Problem}\label{sec:sysmodel-problem}
+
+Each satellite $s_{i,k}$ holds a local dataset
+$\D_{i,k} = \{(\mathbf{c}_n, \mathbf{y}_n)\}$ of paired
+\mbox{(cloudy,\,clear)} image tiles, with $\mathbf{c}_n,
+\mathbf{y}_n \in \R^{3 \times H \times W}$. Let $g_{\mathbf{x}}\colon
+\R^{3\times H\times W}\!\to\!\R^{3\times H\times W}$ denote the
+cloud-removal network parameterised by $\mathbf{x} \in \R^d$ (with
+$d \!\approx\! 2.30\!\times\!10^6$ for \OrbitVLIF), and let
+$\ell\!:\R^{3\times H\times W}\!\times\!\R^{3\times H\times
+W}\!\to\!\R_{\geq 0}$ be a pixel-level reconstruction loss
+(Section~\ref{sec:framework-loss}). The federation jointly minimises
+the global empirical risk
+\begin{align}
+\min_{\mathbf{x}\in\R^d}\;\;
+f(\mathbf{x}) \;&=\; \frac{1}{NK}\!\sum_{i\in\mathcal{N}}
+                       \sum_{k\in\mathcal{K}_i}\!
+                       f_{i,k}(\mathbf{x}), \label{eq:global-obj}\\
+\text{where}\quad
+f_{i,k}(\mathbf{x}) \;&=\; \frac{1}{|\D_{i,k}|}
+                          \!\sum_{(\mathbf{c},\mathbf{y})\in\D_{i,k}}
+                          \!\ell\!\big(g_{\mathbf{x}}(\mathbf{c}),\,\mathbf{y}\big)
+\label{eq:local-loss}
+\end{align}
+is the local empirical risk on satellite $s_{i,k}$. The centralised
+solution requires raw imagery to be downlinked, which is precluded
+by the bottleneck described in Section~\ref{sec:intro}; we therefore
+adopt fully on-orbit decentralised training.
+
+\subsection{Decentralised Learning Procedure}\label{sec:sysmodel-procedure}
+
+Each global round $t \in \{0,\ldots,T\!-\!1\}$ proceeds in four
+steps:
+
+\textbf{(S1) Local update.} Every satellite performs $E$ epochs of
+local AdamW on its dataset starting from the round-$t$ broadcast
+weights $\mathbf{x}^{(t)}$:
+\begin{equation}
+\mathbf{x}_{i,k}^{(t,e+1)} \;=\;
+\mathbf{x}_{i,k}^{(t,e)} \;-\;
+\eta\,\nabla\widetilde f_{i,k}\!\big(\mathbf{x}_{i,k}^{(t,e)}\big),
+\quad e\in\{0,\ldots,E\!-\!1\}, \label{eq:local-sgd}
+\end{equation}
+where $\widetilde f_{i,k}$ is the mini-batch stochastic estimate of
+$f_{i,k}$, $\eta$ is the cosine-annealed learning rate, and
+$\mathbf{x}_{i,k}^{(t,0)} \!=\! \mathbf{x}^{(t)}$.
+
+\textbf{(S2) Intra-plane ring AllReduce.} Within each orbital plane
+$i$, the $K$ satellites pool their post-update weights through a
+ring AllReduce primitive over the quasi-stationary intra-plane
+ISLs to obtain the per-plane consensus
+\begin{equation}
+\mathbf{x}_i^{(t+\tfrac12)} \;=\;
+\frac{1}{K}\sum_{k\in\mathcal{K}_i}\!\mathbf{x}_{i,k}^{(t,E)}.
+\label{eq:intra-plane-avg}
+\end{equation}
+
+\textbf{(S3) Inter-plane Gossip aggregation.} The $N$ plane-level
+models are mixed across the inter-plane chain topology by a
+single-step Gossip averaging with mixing matrix
+$\mathbf{W}\in\R^{N\times N}$ (doubly stochastic, $\mathbf{W}^\top\!=\!\mathbf{W}$),
+\begin{equation}
+\mathbf{x}^{(t+1)}_{i} \;=\;
+\sum_{j\in\mathcal{N}}\!W_{ij}\,\mathbf{x}_j^{(t+\tfrac12)},
+\quad i\in\mathcal{N}.
+\label{eq:gossip}
+\end{equation}
+Following \textsc{FedBN}~\cite{ref:fedbn}, the BN affine and running
+statistics are excluded from~\eqref{eq:gossip} and kept local to
+each plane; convolutional weights and biases participate normally.
+
+\textbf{(S4) Broadcast.} The aggregated plane-level model
+$\mathbf{x}^{(t+1)}_i$ is re-broadcast to every satellite
+$s_{i,k}$, completing round $t$.
+
+\subsection{Source-Level Dirichlet Non-IID Partition}
+\label{sec:sysmodel-partition}
+
+To capture the natural feature-level heterogeneity of satellite
+imagery, we partition the joint training pool over
+$S \!=\! 2$ source labels (CUHK-CR1 thin clouds and CUHK-CR2 thick
+clouds; see Section~\ref{sec:exp-setup}). For each satellite
+$s_{i,k}$ we draw a per-source mixing vector
+\begin{equation}
+\boldsymbol{p}_{i,k} \;=\; (p_{i,k}^{(1)},\,p_{i,k}^{(2)})
+\;\sim\;\Dir(\alpha\!\cdot\!\mathbf{1}_S),
+\label{eq:dirichlet}
+\end{equation}
+and sample tiles from each source proportional to
+$p_{i,k}^{(s)}$ subject to a minimum of five tiles per satellite.
+Smaller $\alpha$ produces more concentrated single-source clients;
+we adopt $\alpha \!=\! 0.1$ as the default, which yields a regime
+in which $\sim$70\,\% of the $50$ satellites hold the floor of five
+tiles while a small minority holds 100\,+ tiles
+(Section~\ref{sec:exp-federated}). Sensitivity to $\alpha$ is
+examined in Section~\ref{sec:exp-federated}.
+
+% =====================================================================
+% Section III: OrbitVLIF Framework lands in subsequent commits.
+% =====================================================================
+
 \end{document}
