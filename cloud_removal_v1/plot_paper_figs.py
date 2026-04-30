@@ -75,15 +75,17 @@ FIG_GRID       = (7.2, 7.0)   # qualitative grid
 # Markers used at every Nth epoch / round.
 MARKERS = ("o", "s", "D", "^", "v")
 
-# Marker-every-N — set so every data point is a marker for short
-# curves, and ~200 markers for very long curves.  User explicitly
-# requested maximum density for the 0-300 epoch region.
-# Concrete densities at MARKER_TARGET_COUNT=200:
-#   600-ep Loss   (600 raw points): every 3 epochs ≈ 200 markers
-#   120-pt PSNR   (120 eval points): every point   ≈ 120 markers
-#    40-pt fed    (40 eval points): every point    ≈  40 markers
-#     8-pt summary (e.g. ablation): every point.
-MARKER_TARGET_COUNT = 200
+# Marker-every-N — set to 1000 so EVERY data point gets a marker on
+# all training curves (loss + PSNR + SSIM, both centralised 600-ep
+# and federated 200-round).  Combined with markersize=1.5pt and
+# linewidth=1.0pt this yields a "scatter-plus-line" look that
+# reveals the full per-epoch noise structure the user wants to see.
+#
+# Concrete densities at MARKER_TARGET_COUNT=1000:
+#   600-ep Loss   → 600 markers (every epoch)         in 0-300 → 300
+#   120-pt PSNR   → 120 markers (every eval point)    in 0-300 →  60
+#    40-pt fed    →  40 markers
+MARKER_TARGET_COUNT = 1000
 
 
 # ---------------------------------------------------------------------------
@@ -361,8 +363,8 @@ def _setup_mpl() -> None:
         "legend.handlelength": 1.6,
         "legend.handletextpad": 0.4,
         "legend.columnspacing": 0.9,
-        "lines.linewidth":     1.2,
-        "lines.markersize":    2.0,
+        "lines.linewidth":     1.0,
+        "lines.markersize":    1.5,
         "lines.markeredgewidth": 0.0,
         "grid.linewidth":      0.4,
         "grid.linestyle":      "--",
@@ -1221,11 +1223,11 @@ def fig7_centralized_4panel(args, out_dir: Path) -> None:
             if y_f.size == 0:
                 continue
             y_smooth = _smooth(y_f, w=9 if kind == "loss" else 3)
-            mev = _smart_marker_every(ep_f.size, target_count=200)
+            mev = _smart_marker_every(ep_f.size, target_count=1000)
             ax.plot(ep_f, y_smooth,
                     color=color, marker=marker, markevery=mev,
-                    label=label, linestyle="-", markersize=2.0,
-                    linewidth=1.2, clip_on=True)
+                    label=label, linestyle="-", markersize=1.5,
+                    linewidth=1.0, clip_on=True)
             n_drawn += 1
 
         ax.set_xlabel("Epoch")
