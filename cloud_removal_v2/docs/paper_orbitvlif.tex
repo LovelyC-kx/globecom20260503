@@ -118,14 +118,21 @@ On a single 4090, \OrbitVLIF{} attains $25.37$\,dB / $0.7728$
 PSNR/SSIM on CUHK-CR1 ($+0.50$\,dB over a parameter-matched
 ANN U-Net at $0.57\!\times$ the parameter count) and $23.20$\,dB on
 CUHK-CR2.  Ablations attribute $0.60$, $0.52$, and $0.30$\,dB drops
-respectively to removing \SHAM, the dual-frequency \MFRB{} path,
-and \FQS{}---both single-component ablations falling
-\emph{below} the plain ANN U-Net baseline, evidence that
-\OrbitVLIF's modules form a co-designed whole.  Per-image
-inference energy is reduced by $1.21\!\times$\,--\,$6.19\!\times$
-over the ANN baseline ($20.75$\,mJ); the bracket reflects the
-multi-level-spike granularity, conservatively bounded by a
-$4.6$\,pJ/MAC formula and optimistically by a $0.9$\,pJ/AC formula.
+respectively to removing \SHAM{}, the dual-frequency \MFRB{} path,
+and \FQS{}---both single-component ablations falling \emph{below}
+the plain ANN U-Net baseline, evidence that \OrbitVLIF's modules
+form a co-designed whole. Per-image inference energy is
+\emph{estimated} (not hardware-measured) by hooking every Conv2d /
+Linear / LIF module during inference and multiplying the measured
+MAC counts and per-layer non-zero rates by literature
+pJ-per-operation constants ($4.6$\,pJ/MAC for the ANN baseline,
+Horowitz 2014 45\,nm CMOS, and $77$\,fJ/SOP for the neuromorphic
+deployment target used by FLSNN, ESDNet, and VLIF). The dual bound
+is $1.21\!\times\!$--\,$72\!\times\!$ reduction over the ANN
+baseline ($20.75$\,mJ): $1.21\!\times\!$ as a conservative
+upper bound that charges every non-zero MAC at the full ANN rate,
+$72\!\times\!$ as the deployment-target lower bound on
+in-memory-computing substrates.
 To our knowledge this is the first end-to-end demonstration of
 decentralized federated learning for spiking image regression on a
 satellite constellation.
@@ -239,8 +246,9 @@ learning system tailored for on-orbit cloud removal. Our
 \item \textbf{We disclose} per-image inference energy with a
   transparent dual-bound estimate that \emph{explicitly} brackets
   the cost of the multi-level \FQS{} quantization: a conservative
-  upper bound at the ANN MAC formula (4.6\,pJ/MAC) and an
-  optimistic lower bound at the binary AC formula (0.9\,pJ/AC).
+  upper bound at the ANN MAC formula (4.6\,pJ/MAC, Horowitz 2014)
+  and a deployment-target lower bound at the neuromorphic SOP
+  formula (77\,fJ/SOP, the constant used by FLSNN / ESDNet / VLIF).
   This honest bracket avoids the common pitfall of reporting only
   the optimistic AC formula on networks that use multi-level spikes.
 
@@ -249,8 +257,9 @@ learning system tailored for on-orbit cloud removal. Our
   three-backbone comparison, and Dirichlet $\alpha$-sensitivity)
   showing that \OrbitVLIF{} attains $25.37$\,dB / $0.7728$
   PSNR/SSIM on CUHK-CR1 with only $2.30$\,M parameters and a
-  $1.21\!\times$\,--\,$6.19\!\times$ inference-energy reduction over
-  the ANN baseline.
+  $1.21\!\times$\,--\,$72\!\times$ inference-energy reduction over
+  the ANN baseline (estimated under standard literature
+  pJ-per-operation constants; see Section~\ref{sec:exp-energy}).
 \end{itemize}
 
 The remainder of the paper is organized as follows.
@@ -1052,78 +1061,116 @@ are visualised in the camera-ready Dirichlet heatmap.
 \begin{figure}[t]
   \centering
   \includegraphics[width=\columnwidth]{fig6_energy_bars.pdf}
-  \caption{Per-image inference energy on a $64\!\times\!64$
-  centre-patch of CUHK-CR1.  ANN baseline (orange) at
-  $4.6$\,pJ/MAC; \OrbitVLIF{} reported as a dual bound:
-  \emph{conservative upper} (blue, hatched) at $4.6$\,pJ/MAC scaled
-  by the spike rate; \emph{optimistic lower} (blue, solid) at
-  $0.9$\,pJ/AC. Multipliers vs.\ ANN are annotated above each bar.
-  Dashed orange line marks the ANN reference level.}
+  \caption{Per-image estimated inference energy on a
+  $64\!\times\!64$ centre-patch of CUHK-CR1.  ANN baseline
+  (orange) at $4.6$\,pJ/MAC (Horowitz, ISSCC 2014, 45\,nm CMOS);
+  \OrbitVLIF{} reported as a dual bound: \emph{conservative upper}
+  (blue, hatched) at $4.6$\,pJ/MAC scaled by the per-layer
+  non-zero MAC ratio $r_\ell$; \emph{deployment-target lower}
+  (blue, solid) at $77$\,fJ/SOP, the neuromorphic SOP cost used
+  by FLSNN, ESDNet, and VLIF. Multipliers vs.\ ANN are annotated
+  above each bar; dashed orange line marks the ANN reference
+  level. MAC counts and $r_\ell$ are measured directly via
+  forward hooks; only the pJ-per-operation constants are taken
+  from the literature.}
   \label{fig:energy}
 \end{figure}
 
 \begin{figure}[t]
   \centering
   \includegraphics[width=\columnwidth]{fig9_per_layer_spike_rate.pdf}
-  \caption{\OrbitVLIF{} per-layer firing rate on CUHK-CR1 test
-  set, instrumented through forward hooks on every
-  LIF / $\FQS$ module.  The $5$-level $\FQS$ activation
-  produces $4/5$ non-zero output values per spike, biasing the
-  empirical floor to $\sim\!75\,\%$.}
+  \caption{\OrbitVLIF{} per-layer LIF firing rate (fraction of
+  non-zero outputs) on CUHK-CR1 test, measured through forward
+  hooks on every LIF / $\FQS$ module. Binary LIF layers exhibit
+  $20$\,--\,$70\,\%$ firing; $\FQS$-equipped layers (\textsc{lif\_node})
+  show a higher non-zero floor because four of the five
+  quantization levels are non-zero by construction.}
   \label{fig:firing-rate}
 \end{figure}
 
 \begin{figure}[t]
   \centering
   \includegraphics[width=\columnwidth]{fig10_per_layer_energy_paired.pdf}
-  \caption{Per-layer energy: ANN (orange) vs.\ \OrbitVLIF{} SNN
-  (blue) for the top-$12$ contributing layers, $\mu$J per image.
-  ANN bars use $4.6$\,pJ/MAC; SNN bars use $0.9$\,pJ/AC times the
-  per-layer non-zero MAC count.}
+  \caption{Per-layer estimated energy: ANN (orange) vs.\
+  \OrbitVLIF{} SNN dual bound (blue, hatched upper at
+  $4.6$\,pJ/MAC; blue, solid lower at $0.077$\,pJ/SOP) for the
+  top-$12$ contributing layers, $\mu$J per image. Bars use the
+  per-layer non-zero MAC count measured by hooks.}
   \label{fig:energy-perlayer}
 \end{figure}
 
-We hook every \texttt{Conv2d} / \texttt{Linear} layer for MAC
-counting and every LIF / $\FQS$ module for firing-rate measurement
-on $32$ CR1 test patches.
+\textbf{Methodology and disclosure.}\;\;Per-image inference energy
+is \emph{estimated}, not hardware-measured. We hook every
+\texttt{Conv2d} / \texttt{Linear} layer to count MACs and the
+input non-zero rate $r_\ell$, and every LIF / $\FQS$ module to
+record the output firing rate, on $32$ CR1 test patches at
+$64\!\times\!64$. The MAC counts and per-layer rates are real
+measurements; the per-operation pJ constants are taken from the
+literature: $4.6$\,pJ/MAC for the ANN baseline (Horowitz, ISSCC
+2014, 45\,nm CMOS) and $77$\,fJ/SOP for the SNN deployment
+estimate, the constant adopted by FLSNN~\cite{ref:flsnn},
+ESDNet~\cite{ref:esdnet}, and VLIF~\cite{ref:fsta-snn} for
+neuromorphic / in-memory-computing substrates such as Loihi-2.
+Hardware-measured wattage on actual neuromorphic platforms is
+deferred to deployment validation
+(Section~\ref{sec:conclusion}).
 
-\textbf{Total energy.}\;\;Figure~\ref{fig:energy} reports
-per-image bounds on a $64\!\times\!64$ centre patch.
-The ANN baseline at $4.6$\,pJ/MAC consumes $20.75$\,mJ. \OrbitVLIF{}
-spans a dual bound:\;an \emph{optimistic lower} of $3.35$\,mJ
-($6.19\!\times$ reduction) using the binary-AC formula
-$0.9$\,pJ/AC, and a \emph{conservative upper} of $17.14$\,mJ
-($1.21\!\times$ reduction) treating each $\FQS$ output as a full
-$4.6$\,pJ MAC. The bracket honestly reflects the uncertainty in
-implementing $5$-level $\FQS$ on neuromorphic hardware: a
-binary-AC formula understates the cost of multi-level spikes,
-while a full-MAC formula overstates it. The true value sits in
-between, closer to the lower bound when target hardware
-(e.g., Loihi-2) supports $4$-bit accumulate primitives.
+\textbf{Two distinct rates.}\;\;\OrbitVLIF{} exhibits two
+related-but-different rates that we report separately. The
+\emph{LIF firing rate} (Fig.~\ref{fig:firing-rate}) is the
+fraction of non-zero outputs at LIF / $\FQS$ neurons themselves;
+binary LIF layers show $20$\,--\,$70\,\%$ firing. The
+\emph{effective non-zero MAC ratio} $\bar{r}=0.826$ averaged across
+all conv layers is what enters the energy formula
+$E_{\rm SNN}\!=\!\sum_\ell\mathrm{MAC}_\ell\,r_\ell\,e_{\rm op}$;
+this ratio is higher than the LIF firing rate because the residual
+and post-BN paths feeding many conv layers carry continuous
+(densely non-zero) values that bypass the LIF sparsity. Only the
+$23\,\%$ of conv MACs whose input \emph{is} a direct LIF output
+fully realise the spike-sparsity advantage.
 
-\textbf{Per-layer attribution.}\;\;Figure~\ref{fig:firing-rate}
-shows that firing rates lie in the $\sim\!75\,$--$\,90\,\%$ band
-across all $\OrbitVLIF$ LIF layers; the $\FQS$ floor (four of five
-levels are non-zero) bounds this from below at $0.75$ regardless
-of input. Figure~\ref{fig:energy-perlayer} pairs ANN and SNN
-energy per layer and shows that the $\sim\!4\!\times$ savings are
-driven primarily by the encoder mid-stages and the \DSP{}
-bottleneck, where ANN MAC counts peak.
+\textbf{Total energy bounds.}\;\;Figure~\ref{fig:energy} reports
+per-image bounds. The ANN baseline at $4.6$\,pJ/MAC over the
+$4.51$\,GMAC inference consumes $20.75$\,mJ. \OrbitVLIF{} spans a
+dual bound:\;a \emph{deployment-target lower} of $0.287$\,mJ
+($72.3\!\times\!$ reduction) at $77$\,fJ/SOP on neuromorphic
+hardware, and a \emph{conservative upper} of $17.14$\,mJ
+($1.21\!\times\!$ reduction) that charges every non-zero MAC at
+the full $4.6$\,pJ ANN rate. The dual-bound bracket honestly
+reflects the deployment uncertainty: $1.21\!\times\!$ is achieved
+even without any neuromorphic hardware, while $72\!\times\!$
+requires a substrate that supports the full SOP / spike abstraction
+(Loihi-2, Speck, Akida).
 
-\textbf{Energy is data-dependent in principle.}\;\;Comparing CR1
-and CR2 inferences on the same architecture (A1 ckpt vs.\ A2
-ckpt) we measure spike rates of $82.6\,\%$ and $82.3\,\%$
-respectively---differing by only $0.3$ percentage points and
-yielding identical $E_{\rm SNN}$ to two decimal places. Two
-mechanisms keep the spike rate stable across cloud-density
-distributions: (i) TDBN with $\gamma_{\rm init}\!=\!\alpha_{\rm bn}V_{\rm th}$
+\textbf{Per-layer attribution.}\;\;Figure~\ref{fig:energy-perlayer}
+shows that the bulk of the absolute energy savings is concentrated
+in the four downsample / upsample convs of the U-Net skeleton
+(\texttt{up3\_2.conv}, \texttt{up2\_1.conv},
+\texttt{down1\_2.conv}, \texttt{down2\_3.conv}, $r_\ell$ between
+$0.34$ and $0.68$) and the \texttt{lif\_2.channel\_adjust}
+($r_\ell\!=\!0.13$) of the dual-frequency
+\MFRB. These five layers carry the majority of the
+$1.04$\,GMAC of \emph{spike-driven} computation; the remaining
+$3.47$\,GMAC operate on residual or post-BN dense inputs and
+gain no spike-sparsity advantage. This per-layer attribution
+explains why the conservative $1.21\!\times\!$ upper bound is
+relatively close to the realistic deployment estimate---a
+sizeable fraction of the network simply cannot benefit from
+sparse SOP semantics on standard hardware.
+
+\textbf{Energy is data-dependent in principle.}\;\;Comparing
+CR1 and CR2 inferences on the same architecture (A1 ckpt vs.\ A2
+ckpt) we measure effective non-zero MAC ratios of $82.6\,\%$ and
+$82.3\,\%$ respectively---differing by only $0.3$ percentage
+points, yielding indistinguishable $E_{\rm SNN}$ at two decimal
+places. Two mechanisms stabilise this rate across cloud-density
+distributions: (i) TDBN with $\gamma_{\rm init}=\alpha_{\rm bn}V_{\rm th}$
 normalises activation magnitudes to a fixed range; (ii) the
-$\FQS$ five-level non-zero floor enforces a structural lower bound
-near $80\,\%$. Spike rate \emph{is}, however, in principle a
-function of input statistics; we therefore do \emph{not} claim
-data-independence of the energy estimate, only that the two
-CUHK-CR distributions are statistically close enough to yield
-indistinguishable bounds.
+$\FQS$ four-of-five non-zero floor enforces a structural lower
+bound on the firing rate at LIF outputs. We therefore do
+\emph{not} claim data-independence of the energy estimate, only
+that the two CUHK-CR distributions are statistically close enough
+to yield indistinguishable bounds.
 
 % =====================================================================
 % Section IV-F (qualitative) and V (conclusion) land in subsequent
@@ -1178,11 +1225,13 @@ multi-frequency dual path) are individually load-bearing: removing
 either drops PSNR \emph{below} the plain ANN baseline, evidence
 that \OrbitVLIF's quality gain is a synergistic property of the
 co-design rather than a sum of independent contributions.
-Per-image inference energy is reduced by
-$1.21\!\times$\,--\,$6.19\!\times$ over the ANN baseline of
-$20.75$\,mJ on a $64\!\times\!64$ centre patch; the dual bound
-honestly reflects the implementation latitude of the multi-level
-$\FQS{}$ activation on neuromorphic hardware.
+Per-image inference energy is \emph{estimated} as
+$1.21\!\times$\,--\,$72\!\times$ lower than the ANN baseline of
+$20.75$\,mJ on a $64\!\times\!64$ centre patch under standard
+literature pJ-per-operation constants ($4.6$\,pJ/MAC for ANN,
+$77$\,fJ/SOP for the neuromorphic deployment target); the dual
+bound honestly reflects the deployment uncertainty between
+standard CMOS and an in-memory-computing substrate.
 
 Four directions extend this work. (i) Real-orbit validation on
 neuromorphic substrates such as Loihi-2 and Speck would replace
