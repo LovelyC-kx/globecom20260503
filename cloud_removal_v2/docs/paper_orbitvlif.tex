@@ -592,4 +592,81 @@ over the parameter-matched ANN baseline.
 % Section III-A.4 (AGFM) onwards lands in subsequent commits.
 % =====================================================================
 
+\subsubsection{\AGFM{}: Adaptive Gated Fusion Module}\label{sec:framework-agfm}
+
+\textbf{Problem.}\;\;
+Standard U-Net skip connections fuse the encoder feature
+$\mathbf{e}$ and the upsampled decoder feature $\mathbf{d}$ either
+by addition or by concatenation, applying the \emph{same} fusion
+weight at every spatial location. For cloud removal this is
+sub-optimal: where the cloud is thin, the encoder features are
+reliable and should dominate, but where the cloud is thick the
+encoder features themselves are corrupted and the decoder
+prediction should dominate. \textbf{Candidate.}\;\;A single
+learnable scalar weight cannot adapt per-pixel to spatially
+non-uniform occlusion. \textbf{Our choice.}\;\;\AGFM{} computes a
+per-pixel sigmoid gate from the concatenated features:
+\begin{equation}
+\mathbf{f} \;=\;
+\boldsymbol{\gamma}\!\odot\!\mathbf{d} \;+\;
+(\mathbf{1}\!-\!\boldsymbol{\gamma})\!\odot\!\mathbf{e},\quad
+\boldsymbol{\gamma}\;=\;\sigma\!\big(\mathrm{Conv}_{1\!\times\!1}([\mathbf{d};\,\mathbf{e}])\big),
+\label{eq:agfm}
+\end{equation}
+where $\boldsymbol{\gamma}\!\in\!\R^{C\times H\times W}$. The gate
+is therefore content-adaptive: at thick-cloud pixels
+$\boldsymbol{\gamma}\!\to\!1$ favours the decoder, while at
+clean-pixel locations $\boldsymbol{\gamma}\!\to\!0$ preserves the
+encoder detail.
+
+\subsubsection{\DSP{}: Deep Spectral Processor}\label{sec:framework-dsp}
+
+The deepest U-Net stage operates at $H/4$ resolution with the
+largest channel width $4C$, accumulating semantic context across
+the receptive field. \textbf{Problem.}\;\;Plain stacked
+convolutions at this stage have only local receptive field; vanilla
+self-attention has $\mathcal{O}\big((HW)^2\big)$ cost incompatible
+with the on-orbit power budget. \textbf{Candidate.}\;\;A
+frequency-domain MLP (\textsc{FreMLP}~\cite{ref:darkir}) achieves
+$\mathcal{O}(N\log N)$ global receptive field via the FFT, but
+lacks the temporal-axis coupling that distinguishes a spiking
+network from a frame-wise ANN. \textbf{Our choice.}\;\;The \DSP{}
+cascades three components:
+\begin{equation}
+\mathrm{DSP}(\mathbf{X}) \;=\;
+\mathrm{CTM}\!\Big(\,\FQS\!\big(\mathrm{TDBN}\!\big(\textsc{FreMLP}(\mathbf{X})\big)\big)\Big),
+\label{eq:dsp}
+\end{equation}
+where the \textsc{FreMLP} provides global spatial mixing, the
+$\FQS$-quantised LIF maintains spike sparsity at the bottleneck
+(the deepest stage typically has the highest firing rate; sparse
+quantisation here yields the largest absolute energy saving), and
+the \emph{Channel-Time Modulation} (\CTM) recalibrates jointly
+along $C$ and $T$ via a $1\!\times\!1$-Conv$\to$ReLU$\to1\!\times\!1$-Conv
+bottleneck operating on the
+$\mathrm{Pool}_{H,W}\big(\mathbf{X}\big)\!\in\!\R^{T\times C}$
+descriptor.
+
+\subsection{Loss Function}\label{sec:framework-loss}
+
+We train end-to-end with a composite Charbonnier-plus-SSIM
+objective inherited from prior SNN image-restoration
+work~\cite{ref:esdnet}:
+\begin{equation}
+\ell\big(\hat{\mathbf{y}},\,\mathbf{y}\big) \;=\;
+\frac{1}{|\Omega|}\!\sum_{p\in\Omega}\!
+\sqrt{(\hat{\mathbf{y}}_p\!-\!\mathbf{y}_p)^2 + \varepsilon^2}
+\;+\;\lambda\,\big(1 - \mathrm{SSIM}(\hat{\mathbf{y}},\mathbf{y})\big),
+\label{eq:loss}
+\end{equation}
+with $\varepsilon\!=\!10^{-3}$ and $\lambda\!=\!0.1$. The
+Charbonnier term (a smooth $L_1$ surrogate) preserves the
+pixel-level $L$-smoothness assumption underlying any SGD-based
+federated convergence guarantee; the SSIM term acts as a
+perceptual regulariser.
+
+% =====================================================================
+% Section III-C (FL pipeline + Algorithm 1) lands in subsequent commits.
+% =====================================================================
+
 \end{document}
