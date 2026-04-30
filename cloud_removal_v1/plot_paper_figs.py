@@ -75,11 +75,15 @@ FIG_GRID       = (7.2, 7.0)   # qualitative grid
 # Markers used at every Nth epoch / round.
 MARKERS = ("o", "s", "D", "^", "v")
 
-# Marker-every-N — set so each curve has ~50 markers regardless of length.
-# Combined with markersize=2.5pt below this gives near-every-point density
-# without overcrowding: e.g. 600-ep Loss gets a marker every ~12 epochs,
-# 120-pt PSNR every ~2-3 points, 40-pt federated every 1 point.
-MARKER_TARGET_COUNT = 50
+# Marker-every-N — set so every data point is a marker for short
+# curves, and ~200 markers for very long curves.  User explicitly
+# requested maximum density for the 0-300 epoch region.
+# Concrete densities at MARKER_TARGET_COUNT=200:
+#   600-ep Loss   (600 raw points): every 3 epochs ≈ 200 markers
+#   120-pt PSNR   (120 eval points): every point   ≈ 120 markers
+#    40-pt fed    (40 eval points): every point    ≈  40 markers
+#     8-pt summary (e.g. ablation): every point.
+MARKER_TARGET_COUNT = 200
 
 
 # ---------------------------------------------------------------------------
@@ -357,8 +361,8 @@ def _setup_mpl() -> None:
         "legend.handlelength": 1.6,
         "legend.handletextpad": 0.4,
         "legend.columnspacing": 0.9,
-        "lines.linewidth":     1.3,
-        "lines.markersize":    2.5,
+        "lines.linewidth":     1.2,
+        "lines.markersize":    2.0,
         "lines.markeredgewidth": 0.0,
         "grid.linewidth":      0.4,
         "grid.linestyle":      "--",
@@ -1217,11 +1221,11 @@ def fig7_centralized_4panel(args, out_dir: Path) -> None:
             if y_f.size == 0:
                 continue
             y_smooth = _smooth(y_f, w=9 if kind == "loss" else 3)
-            mev = _smart_marker_every(ep_f.size, target_count=50)
+            mev = _smart_marker_every(ep_f.size, target_count=200)
             ax.plot(ep_f, y_smooth,
                     color=color, marker=marker, markevery=mev,
-                    label=label, linestyle="-", markersize=2.5,
-                    linewidth=1.3, clip_on=True)
+                    label=label, linestyle="-", markersize=2.0,
+                    linewidth=1.2, clip_on=True)
             n_drawn += 1
 
         ax.set_xlabel("Epoch")
