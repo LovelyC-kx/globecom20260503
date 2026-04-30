@@ -62,9 +62,9 @@ if __package__ in (None, ""):
 # ---------------------------------------------------------------------------
 
 # Wong-2011 color-blind-safe; verified against deuteranopia / protanopia sims.
-PALETTE_BLUE   = "#0173B2"   # primary    — VLIFNet / SNN
+PALETTE_BLUE   = "#0173B2"   # primary    — OrbitVLIF / SNN
 PALETTE_ORANGE = "#DE8F05"   # secondary  — PlainUNet / ANN
-PALETTE_GREEN  = "#029E73"   # tertiary   — ESDNet / extra
+PALETTE_GREEN  = "#029E73"   # tertiary   — extra
 PALETTE_GRAY   = "#999999"   # neutral    — ground truth / shading
 
 # IEEE 2-column conference, sizes in inches.
@@ -147,6 +147,10 @@ def _parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--f_bn", type=str, default=F_BN, choices=["fedavg", "fedbn"])
     p.add_argument("--f_scheme", type=str, default=F_SCHEME)
 
+    # Per-layer energy (Fig 10) — limit shown layers
+    p.add_argument("--energy_topk", type=int, default=12,
+                   help="Fig 10: show top-K layers by ANN energy.  Default 12.")
+
     return p.parse_args(argv)
 
 
@@ -165,7 +169,7 @@ def _warn(msg: str) -> None:
 
 def _resolve_figs(spec: str) -> List[int]:
     """'all' | '2,3,5' | '4'  →  sorted list of int fig ids in {2,3,4,5,6}."""
-    valid = {2, 3, 4, 5, 6}
+    valid = {2, 3, 4, 5, 6, 7, 9, 10}
     if spec.strip().lower() == "all":
         return sorted(valid)
     out: List[int] = []
@@ -416,12 +420,12 @@ def fig2_centralized_curves(args, out_dir: Path) -> None:
     # Per-panel curve specs: (run_name, label, color, marker)
     panels = [
         ("CR1", [
-            (args.run_a1,     "VLIFNet (ours)",  PALETTE_BLUE,   "o"),
-            (args.run_c2_cr1, "PlainUNet",       PALETTE_ORANGE, "s"),
+            (args.run_a1,     "OrbitVLIF (ours)", PALETTE_BLUE,   "o"),
+            (args.run_c2_cr1, "PlainUNet",        PALETTE_ORANGE, "s"),
         ]),
         ("CR2", [
-            (args.run_a2,     "VLIFNet (ours)",  PALETTE_BLUE,   "o"),
-            (args.run_c2_cr2, "PlainUNet",       PALETTE_ORANGE, "s"),
+            (args.run_a2,     "OrbitVLIF (ours)", PALETTE_BLUE,   "o"),
+            (args.run_c2_cr2, "PlainUNet",        PALETTE_ORANGE, "s"),
         ]),
     ]
 
@@ -640,7 +644,7 @@ def fig3_qualitative_grid(args, out_dir: Path) -> None:
         return
 
     # 4) Render grid.
-    cols = ["Cloudy", "VLIFNet (ours)", "PlainUNet", "Ground Truth"]
+    cols = ["Cloudy", "OrbitVLIF (ours)", "PlainUNet", "Ground Truth"]
     n_cols = len(cols)
     fig, axes = plt.subplots(
         len(indices), n_cols,
@@ -757,10 +761,10 @@ def fig4_ablation_bars(args, out_dir: Path) -> None:
 
     # Pull (run_name, label, color) — ORDER FIXED for paper consistency.
     spec = [
-        (args.run_a1, "Full",         PALETTE_BLUE,   True),   # ← reference
-        (args.run_b1, "−FSTA",        PALETTE_ORANGE, False),
-        (args.run_b2, "−DualGroup",   PALETTE_GREEN,  False),
-        (args.run_b3, "−MultiSpike4", PALETTE_GRAY,   False),
+        (args.run_a1, "Full",        PALETTE_BLUE,   True),   # ← reference
+        (args.run_b1, "−SHAM",       PALETTE_ORANGE, False),
+        (args.run_b2, "−DualPath",   PALETTE_GREEN,  False),
+        (args.run_b3, "−5QS",        PALETTE_GRAY,   False),
     ]
 
     # Load each summary; missing entries become None placeholders so the
@@ -884,9 +888,9 @@ def fig5_federated_curves(args, out_dir: Path) -> None:
     outputs_v2 = Path(args.outputs_v2)
 
     spec = [
-        (args.run_f_snn,   "F-SNN (VLIFNet)",      PALETTE_BLUE,   "o"),
-        (args.run_f_ann,   "F-ANN (VLIFNet ReLU)", PALETTE_ORANGE, "s"),
-        (args.run_f_plain, "F-Plain (PlainUNet)",  PALETTE_GREEN,  "D"),
+        (args.run_f_snn,   "F-SNN (OrbitVLIF)",      PALETTE_BLUE,   "o"),
+        (args.run_f_ann,   "F-ANN (OrbitVLIF-ANN)",  PALETTE_ORANGE, "s"),
+        (args.run_f_plain, "F-Plain (PlainUNet)",    PALETTE_GREEN,  "D"),
     ]
 
     drawn: List[Tuple[str, np.ndarray, np.ndarray]] = []   # (label, rounds, comm_cum_MB)
@@ -1085,6 +1089,299 @@ def fig6_energy_bars(args, out_dir: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Block 7B — Fig 7 (4-panel centralized learning curves, FLSNN style)
+# ---------------------------------------------------------------------------
+
+def _smooth(arr: np.ndarray, w: int = 9) -> np.ndarray:
+    """1-D rolling mean for visual smoothing of noisy training curves.
+    Uses 'same'-mode convolution with edge-replication padding to avoid
+    end-of-curve drop-out."""
+    arr = np.asarray(arr, dtype=np.float64)
+    if arr.size < 3 or w <= 1:
+        return arr
+    w = min(w, arr.size)
+    if w % 2 == 0:
+        w += 1
+    pad = w // 2
+    padded = np.concatenate([np.full(pad, arr[0]), arr, np.full(pad, arr[-1])])
+    kernel = np.ones(w, dtype=np.float64) / w
+    return np.convolve(padded, kernel, mode="valid")
+
+
+def fig7_centralized_4panel(args, out_dir: Path) -> None:
+    """4-panel centralized learning curves in the FLSNN-style 2×2 layout::
+
+        (a) Training Loss vs epoch on CR1   (b) Test PSNR vs epoch on CR1
+        (c) Training Loss vs epoch on CR2   (d) Test PSNR vs epoch on CR2
+
+    Each panel overlays OrbitVLIF (blue, ``o``) and PlainUNet (orange,
+    ``s``).  Curves are lightly smoothed (rolling mean, w=9) for visual
+    clarity; raw values still drive the markers.
+
+    Reads from ``args.outputs_v1`` using ``args.run_a1 / a2 / c2_cr1 /
+    c2_cr2``.  Output: ``out_dir/fig7_centralized_4panel.pdf``.
+    """
+    _setup_mpl()
+    import matplotlib.pyplot as plt
+
+    outputs_v1 = Path(args.outputs_v1)
+
+    panels = [
+        ("CR1", "loss",  args.run_a1,     args.run_c2_cr1),
+        ("CR1", "psnr",  args.run_a1,     args.run_c2_cr1),
+        ("CR2", "loss",  args.run_a2,     args.run_c2_cr2),
+        ("CR2", "psnr",  args.run_a2,     args.run_c2_cr2),
+    ]
+
+    fig, axes = plt.subplots(2, 2, figsize=(7.2, 5.0), sharex=False)
+    axes_flat = axes.flat
+
+    n_drawn = 0
+    for ax, (ds, kind, run_v, run_p) in zip(axes_flat, panels):
+        ax.grid(True, which="major", alpha=0.35, linewidth=0.4)
+
+        for run_name, label, color, marker in [
+            (run_v, "OrbitVLIF (ours)", PALETTE_BLUE,   "o"),
+            (run_p, "PlainUNet",        PALETTE_ORANGE, "s"),
+        ]:
+            d = load_centralized_npz(outputs_v1, run_name)
+            if d is None:
+                continue
+            ep = np.asarray(d["epoch"], dtype=np.float64)
+            if kind == "loss":
+                y_raw = np.asarray(d["train_loss"], dtype=np.float64)
+                ep_f, y_f = ep, y_raw
+            else:  # psnr
+                y_raw = np.asarray(d["eval_psnr"], dtype=np.float64)
+                ep_f, y_f = _finite(ep, y_raw)
+            if y_f.size == 0:
+                continue
+            y_smooth = _smooth(y_f, w=9 if kind == "loss" else 3)
+            mev = _smart_marker_every(ep_f.size, target_count=10)
+            ax.plot(ep_f, y_smooth,
+                    color=color, marker=marker, markevery=mev,
+                    label=label, linestyle="-", markersize=4.5,
+                    linewidth=1.4, clip_on=True)
+            n_drawn += 1
+
+        ax.set_xlabel("Epoch")
+        ax.set_ylabel("Training Loss" if kind == "loss" else "PSNR (dB)")
+        if kind == "loss":
+            ax.set_yscale("log")
+
+        # Subtitle in FLSNN style: "(a) Training Loss on CR1" etc.
+        idx = list(panels).index((ds, kind, run_v, run_p))
+        sub_letter = "abcd"[idx]
+        kind_word = "Training Loss" if kind == "loss" else "Test PSNR"
+        ax.set_title(f"({sub_letter}) {kind_word} on CUHK-{ds}", fontsize=9)
+        ax.margins(x=0.02)
+
+    # Shared legend on top
+    handles, labels = axes[0, 0].get_legend_handles_labels()
+    if handles:
+        fig.legend(handles, labels,
+                   loc="upper center", bbox_to_anchor=(0.5, 1.015),
+                   ncol=len(handles), frameon=False)
+    fig.tight_layout(pad=0.4, rect=(0.0, 0.0, 1.0, 0.97))
+
+    if n_drawn == 0:
+        _warn("Fig 7: no centralized data found; saving empty figure")
+    _save_pdf(fig, out_dir / "fig7_centralized_4panel.pdf")
+    plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
+# Block 7C — Fig 9 (per-layer spike rate, FLSNN Fig 8a style)
+# ---------------------------------------------------------------------------
+
+def _energy_per_layer_summary(energy_dir: Path) -> Optional[List[Dict]]:
+    """Pull the per_layer_macs entries from energy_summary.json, joined with
+    matching firing rates from per_layer_spikes (matched by layer name).
+    Returns a list of dicts with keys::
+
+        name, mac, eff_nz_mac, input_nonzero_rate,
+        firing_rate (None if no spike entry exists for this layer)
+
+    Sorted by mac descending (top contributors first).  None on miss.
+    """
+    s = load_energy_summary(energy_dir)
+    if s is None:
+        return None
+    macs = s.get("per_layer_macs") or []
+    spikes = {row["name"]: row for row in (s.get("per_layer_spikes") or [])
+              if isinstance(row, dict) and "name" in row}
+    rows = []
+    for m in macs:
+        if not isinstance(m, dict):
+            continue
+        n = m.get("name", "")
+        sp = spikes.get(n) or {}
+        rows.append({
+            "name":               n,
+            "mac":                float(m.get("mac_per_image",        0) or 0),
+            "eff_nz_mac":         float(m.get("effective_nz_mac_per_image", 0) or 0),
+            "input_nonzero_rate": float(m.get("input_nonzero_rate",   0) or 0),
+            "firing_rate":        float(sp["mean_firing_rate"])
+                                  if "mean_firing_rate" in sp else None,
+        })
+    rows.sort(key=lambda r: -r["mac"])
+    return rows
+
+
+def _short_layer_name(full: str, max_len: int = 14) -> str:
+    """Compact a long dotted module path to fit on the X-axis label."""
+    if len(full) <= max_len:
+        return full
+    parts = full.split(".")
+    if len(parts) >= 2:
+        # keep the last two qualified pieces (e.g. encoder_level1.0.conv1 → l1.0.conv1)
+        return ".".join(parts[-3:]) if len(parts) >= 3 else ".".join(parts[-2:])
+    return full[:max_len]
+
+
+def fig9_per_layer_spike_rate(args, out_dir: Path) -> None:
+    """Per-layer spike (firing) rate bar chart, FLSNN Fig 8a style.
+
+    Vertical bars, one per LIF / mem_update layer that the energy meter
+    instrumented.  Each bar's top is annotated with the firing-rate value
+    (4 decimals).  Layers with no firing-rate hooks (Conv2d-only layers)
+    are excluded.
+
+    Output: ``out_dir/fig9_per_layer_spike_rate.pdf``.
+    """
+    _setup_mpl()
+    import matplotlib.pyplot as plt
+
+    rows = _energy_per_layer_summary(Path(args.energy_dir))
+    if rows is None:
+        return
+    sp_rows = [r for r in rows if r["firing_rate"] is not None]
+    if not sp_rows:
+        _warn("Fig 9: no per-layer firing-rate entries; skipping")
+        return
+
+    # Sort by firing_rate descending (most active layers leftmost is also OK,
+    # but for readability we sort by network depth implied by the layer name
+    # natural ordering — here we keep the energy_meter's emission order
+    # which already follows forward-pass order).
+    sp_rows = sorted(sp_rows, key=lambda r: r["name"])
+
+    n = len(sp_rows)
+    width = max(7.2, 0.32 * n)
+    fig, ax = plt.subplots(figsize=(width, 3.0))
+    x = np.arange(n)
+    rates = [r["firing_rate"] for r in sp_rows]
+    bars = ax.bar(x, rates, color=PALETTE_BLUE, edgecolor="black", linewidth=0.4,
+                  width=0.72)
+
+    # Numerical label on top of every bar (FLSNN style).
+    for xi, r in zip(x, rates):
+        ax.text(xi, r + 0.02, f"{r:.4f}",
+                ha="center", va="bottom", fontsize=6.5,
+                color=PALETTE_BLUE, fontweight="bold")
+
+    ax.set_xticks(x)
+    ax.set_xticklabels([_short_layer_name(r["name"]) for r in sp_rows],
+                       rotation=70, ha="right", fontsize=6.5)
+    ax.set_ylabel("Firing rate")
+    ax.set_ylim(0, max(rates) * 1.18)
+    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v*100:.0f}%"))
+    ax.grid(True, axis="y", alpha=0.3, linewidth=0.4)
+    ax.set_axisbelow(True)
+    ax.set_title("Per-layer firing rate of OrbitVLIF (CR1)", fontsize=9)
+
+    fig.tight_layout(pad=0.3)
+    _save_pdf(fig, out_dir / "fig9_per_layer_spike_rate.pdf")
+    plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
+# Block 7D — Fig 10 (per-layer ANN vs SNN paired energy bars, FLSNN Fig 8b)
+# ---------------------------------------------------------------------------
+
+def fig10_per_layer_energy_paired(args, out_dir: Path) -> None:
+    """Per-layer ANN vs SNN energy paired bar chart, FLSNN Fig 8b style.
+
+    For each instrumented Conv2d / Linear layer, draw two adjacent bars:
+
+        ANN (orange) = mac_per_image × ann_pj_per_mac (4.6 pJ default)
+        SNN (blue)   = effective_nz_mac × ac_pj_per_op (0.9 pJ default)
+
+    Each bar is annotated with its numeric energy value (μJ unit chosen
+    for readability).  Layers ordered by ANN energy descending and only
+    the top ``--energy_topk`` (default 12) shown to keep the figure
+    compact at 6-page conference width.
+
+    Output: ``out_dir/fig10_per_layer_energy_paired.pdf``.
+    """
+    _setup_mpl()
+    import matplotlib.pyplot as plt
+
+    rows = _energy_per_layer_summary(Path(args.energy_dir))
+    if rows is None:
+        return
+
+    s = load_energy_summary(Path(args.energy_dir))  # for pj constants
+    if s is None:
+        return
+    ann_pj = float(s.get("config", {}).get("ann_pj_per_mac", 4.6) or 4.6)
+    ac_pj  = float(s.get("config", {}).get("ac_pj_per_op",   0.9) or 0.9)
+
+    # Convert energy to μJ for readable annotations (1 μJ = 1e6 pJ).
+    for r in rows:
+        r["e_ann_uj"] = r["mac"]        * ann_pj / 1e6
+        r["e_snn_uj"] = r["eff_nz_mac"] * ac_pj  / 1e6
+
+    # Filter to top-K by ANN energy (keep at most all layers that have
+    # > 0.5% of the maximum so the chart isn't dominated by 1-2 giants).
+    rows = [r for r in rows if r["e_ann_uj"] > 0]
+    if not rows:
+        _warn("Fig 10: no positive-energy layers; skipping")
+        return
+    topk = max(1, getattr(args, "energy_topk", 12))
+    rows = rows[:topk]
+
+    n = len(rows)
+    bar_w = 0.38
+    width = max(7.2, 0.55 * n)
+    fig, ax = plt.subplots(figsize=(width, 3.4))
+    x = np.arange(n)
+
+    e_ann = [r["e_ann_uj"] for r in rows]
+    e_snn = [r["e_snn_uj"] for r in rows]
+
+    b_ann = ax.bar(x - bar_w/2, e_ann, bar_w, color=PALETTE_ORANGE,
+                   edgecolor="black", linewidth=0.4, label=f"ANN ({ann_pj:.1f} pJ/MAC)")
+    b_snn = ax.bar(x + bar_w/2, e_snn, bar_w, color=PALETTE_BLUE,
+                   edgecolor="black", linewidth=0.4, label=f"SNN ({ac_pj:.1f} pJ/AC)")
+
+    # Numerical labels (μJ, 3 sig fig)
+    for xi, va, vs in zip(x, e_ann, e_snn):
+        ax.text(xi - bar_w/2, va, f"{va:.2f}",
+                ha="center", va="bottom", fontsize=6.0,
+                color=PALETTE_ORANGE, fontweight="bold")
+        ax.text(xi + bar_w/2, vs, f"{vs:.2f}",
+                ha="center", va="bottom", fontsize=6.0,
+                color=PALETTE_BLUE, fontweight="bold")
+
+    ax.set_xticks(x)
+    ax.set_xticklabels([_short_layer_name(r["name"]) for r in rows],
+                       rotation=70, ha="right", fontsize=6.5)
+    ax.set_ylabel(r"Energy per layer ($\mu$J)")
+    ax.legend(loc="upper right", frameon=False, fontsize=8)
+    ax.grid(True, axis="y", alpha=0.3, linewidth=0.4)
+    ax.set_axisbelow(True)
+    cur_lo, cur_hi = ax.get_ylim()
+    ax.set_ylim(0, cur_hi * 1.15)
+    ax.set_title(
+        f"Per-layer energy: ANN vs SNN (top-{n} by ANN energy)", fontsize=9)
+
+    fig.tight_layout(pad=0.3)
+    _save_pdf(fig, out_dir / "fig10_per_layer_energy_paired.pdf")
+    plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
 # Block 8 — LaTeX tables (tab1 centralized, tab2 ablation, tab3 federated)
 # ---------------------------------------------------------------------------
 
@@ -1134,10 +1431,10 @@ def tab1_centralized(args, out_dir: Path) -> None:
     outputs_v1 = Path(args.outputs_v1)
 
     rows_spec = [
-        ("VLIFNet (ours)", "CR1", args.run_a1),
-        ("VLIFNet (ours)", "CR2", args.run_a2),
-        ("PlainUNet",      "CR1", args.run_c2_cr1),
-        ("PlainUNet",      "CR2", args.run_c2_cr2),
+        ("OrbitVLIF (ours)", "CR1", args.run_a1),
+        ("OrbitVLIF (ours)", "CR2", args.run_a2),
+        ("PlainUNet",        "CR1", args.run_c2_cr1),
+        ("PlainUNet",        "CR2", args.run_c2_cr2),
     ]
 
     # First pass — collect raw numbers so we can find the per-dataset best.
@@ -1206,10 +1503,10 @@ def tab2_ablation(args, out_dir: Path) -> None:
     outputs_v1 = Path(args.outputs_v1)
 
     spec = [
-        ("Full (A1)",                 args.run_a1, True),
-        (r"$-$FSTA (B1)",             args.run_b1, False),
-        (r"$-$DualGroup (B2)",        args.run_b2, False),
-        (r"$-$MultiSpike4 (B3)",      args.run_b3, False),
+        ("Full (A1)",              args.run_a1, True),
+        (r"$-$SHAM (B1)",          args.run_b1, False),
+        (r"$-$DualPath (B2)",      args.run_b2, False),
+        (r"$-$5QS (B3)",           args.run_b3, False),
     ]
 
     a1_summary = load_centralized_summary(outputs_v1, args.run_a1) or {}
@@ -1244,7 +1541,7 @@ def tab2_ablation(args, out_dir: Path) -> None:
         r"\begin{table}[t]",
         r"\centering",
         r"\caption{Ablation on CUHK-CR1.  $\Delta$ relative to the full "
-        r"VLIFNet (A1); negative numbers = ablation hurts.}",
+        r"OrbitVLIF (A1); negative numbers = ablation hurts.}",
         r"\label{tab:ablation}",
         r"\begin{tabular}{lcccc}",
         r"\toprule",
@@ -1276,9 +1573,9 @@ def tab3_federated(args, out_dir: Path) -> None:
     outputs_v2 = Path(args.outputs_v2)
 
     spec = [
-        ("VLIFNet-SNN (ours)", args.run_f_snn),
-        ("VLIFNet-ANN",        args.run_f_ann),
-        ("PlainUNet",          args.run_f_plain),
+        ("OrbitVLIF-SNN (ours)", args.run_f_snn),
+        ("OrbitVLIF-ANN",        args.run_f_ann),
+        ("PlainUNet",            args.run_f_plain),
     ]
 
     body_rows: List[str] = []
@@ -1331,11 +1628,14 @@ def tab3_federated(args, out_dir: Path) -> None:
 
 _FIG_REGISTRY = {
     # Populated incrementally as each block lands:
-    2: ("fig2_centralized_curves", "fig2_centralized_curves.pdf"),
-    3: ("fig3_qualitative_grid",   "fig3_qualitative_grid.pdf"),
-    4: ("fig4_ablation_bars",      "fig4_ablation_bars.pdf"),
-    5: ("fig5_federated_curves",   "fig5_federated_curves.pdf"),
-    6: ("fig6_energy_bars",        "fig6_energy_bars.pdf"),
+    2:  ("fig2_centralized_curves",      "fig2_centralized_curves.pdf"),
+    3:  ("fig3_qualitative_grid",        "fig3_qualitative_grid.pdf"),
+    4:  ("fig4_ablation_bars",           "fig4_ablation_bars.pdf"),
+    5:  ("fig5_federated_curves",        "fig5_federated_curves.pdf"),
+    6:  ("fig6_energy_bars",             "fig6_energy_bars.pdf"),
+    7:  ("fig7_centralized_4panel",      "fig7_centralized_4panel.pdf"),
+    9:  ("fig9_per_layer_spike_rate",    "fig9_per_layer_spike_rate.pdf"),
+    10: ("fig10_per_layer_energy_paired","fig10_per_layer_energy_paired.pdf"),
 }
 
 
@@ -1350,11 +1650,14 @@ def main(argv=None) -> None:
 
     # Currently-implemented dispatch.
     impls = {
-        2: fig2_centralized_curves,
-        3: fig3_qualitative_grid,
-        4: fig4_ablation_bars,
-        5: fig5_federated_curves,
-        6: fig6_energy_bars,
+        2:  fig2_centralized_curves,
+        3:  fig3_qualitative_grid,
+        4:  fig4_ablation_bars,
+        5:  fig5_federated_curves,
+        6:  fig6_energy_bars,
+        7:  fig7_centralized_4panel,
+        9:  fig9_per_layer_spike_rate,
+        10: fig10_per_layer_energy_paired,
     }
 
     produced: List[str] = []
