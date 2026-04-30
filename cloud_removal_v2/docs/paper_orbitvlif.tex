@@ -669,4 +669,96 @@ perceptual regulariser.
 % Section III-C (FL pipeline + Algorithm 1) lands in subsequent commits.
 % =====================================================================
 
+\subsection{Decentralized Federated Training Pipeline}\label{sec:framework-fl}
+
+We instantiate the four-step procedure of
+Section~\ref{sec:sysmodel-procedure} with two design choices that
+are jointly tuned to the source-level Dirichlet regime: (i)
+\textsc{FedBN} for BN handling, and (ii) Gossip averaging for
+inter-plane mixing.
+
+\subsubsection*{Why \textsc{FedBN}}
+Under source-level Dirichlet $\alpha\!=\!0.1$, $\sim$70\,\% of the
+$50$ satellites hold a single source (CR1 \emph{or} CR2 only,
+floor $5$ tiles). The per-satellite BN running statistics
+$(\mu_{i,k},\sigma^2_{i,k})$ are therefore strongly source-conditioned.
+Averaging these statistics globally---as in vanilla
+\textsc{FedAvg}---would force a single neuron to encode the
+union of two distinct cloud-density distributions, dragging both
+modes towards a degraded average. \textsc{FedBN}~\cite{ref:fedbn}
+keeps the BN affine and running statistics \emph{local} to each
+satellite while still averaging convolutional weights and biases,
+restoring the per-source calibration freedom needed for stable
+SNN spike statistics.
+
+\subsubsection*{Why Gossip averaging}
+Among the standard inter-plane aggregation
+options---centralised AllReduce, Gossip
+averaging~\cite{ref:gossip1,ref:gossip2}, and RelaySum~\cite{ref:relaysum}---we
+adopt single-step Gossip with a doubly-stochastic mixing matrix
+$\mathbf{W}$ (eq.~\ref{eq:gossip}). The choice is motivated by two
+properties suited to satellite deployment: (i) Gossip is
+\emph{decentralised}---no plane needs to act as a coordinator,
+removing a single point of failure; (ii) per-round inter-plane
+bandwidth is $\mathcal{O}(N\!\cdot\!d)$ uplink and $\mathcal{O}(N\!\cdot\!d)$
+downlink per active edge, independent of the topology diameter.
+RelaySum's $\zeta^2\!\cdot\!\tau$ convergence term~\cite{ref:relaysum}
+dominates only when the inter-client gradient dissimilarity
+$\zeta^2$ is large; for source-level Dirichlet over $S\!=\!2$
+sources with the dense Charbonnier loss~\eqref{eq:loss}, $\zeta^2$
+is structurally smaller than for label-Dirichlet over many classes,
+and we observe that Gossip, AllReduce, and RelaySum perform within
+$\pm 0.1$\,dB of each other (Section~\ref{sec:exp-federated}).
+Gossip's decentralisation advantage therefore dictates the choice
+without an accuracy penalty.
+
+\subsubsection*{Communication-cost accounting}
+Each round transmits $d$ float-32 weights for the conv subset of
+\OrbitVLIF{} ($d_\textsc{conv}\!\approx\!2.20$\,M after excluding
+BN affine) over each active inter-plane Gossip edge. With $5$
+planes and a chain topology of $4$ active inter-plane edges, this
+is $\sim 35$\,MB per round; over $T\!=\!200$ rounds the cumulative
+cross-plane traffic is $\sim 7$\,GB, dominated by Gossip rather
+than the intra-plane ring AllReduce that operates on the
+quasi-stationary high-bandwidth channels.
+
+The complete \OrbitVLIF{} decentralised training procedure is
+summarised in Algorithm~\ref{alg:orbitvlif}.
+
+\begin{algorithm}[t]
+\caption{\OrbitVLIF{} Decentralised Training}\label{alg:orbitvlif}
+\begin{algorithmic}[1]
+  \REQUIRE Initial weights $\mathbf{x}^{(0)}$; planes $\mathcal{N}$, satellites
+           $\mathcal{K}_i$; mixing matrix $\mathbf{W}\!\in\!\R^{N\!\times\!N}$;
+           local epochs $E$; global rounds $T$; learning rate
+           schedule $\{\eta_t\}$; local datasets $\{\D_{i,k}\}$
+  \FOR{$t = 0, 1, \ldots, T-1$}
+    \STATE \textbf{Step~S1 — local update (parallel over satellites).}
+    \FORALL{$(i,k)\in\mathcal{N}\!\times\!\mathcal{K}_i$ in parallel}
+      \STATE $\mathbf{x}_{i,k}^{(t,0)} \!\leftarrow\! \mathbf{x}^{(t)}_i$
+      \FOR{$e = 0, \ldots, E\!-\!1$}
+        \STATE $\mathbf{x}_{i,k}^{(t,e+1)} \!\leftarrow\!
+                \mathbf{x}_{i,k}^{(t,e)}\!-\!\eta_t\nabla\widetilde f_{i,k}\!\big(\mathbf{x}_{i,k}^{(t,e)}\big)$
+      \ENDFOR
+    \ENDFOR
+    \STATE \textbf{Step~S2 — intra-plane ring AllReduce.}
+    \FOR{$i\!\in\!\mathcal{N}$ in parallel}
+      \STATE $\mathbf{x}_i^{(t+\tfrac12)}\!\leftarrow\!\frac{1}{K}\sum_{k}\!\mathbf{x}_{i,k}^{(t,E)}$
+    \ENDFOR
+    \STATE \textbf{Step~S3 — inter-plane Gossip (FedBN: conv only).}
+    \FOR{$i\!\in\!\mathcal{N}$}
+      \STATE $\mathbf{x}_i^{(t+1)}\!\leftarrow\!
+              \sum_{j}\!W_{ij}\,\mathbf{x}_{j,\,\textsc{conv}}^{(t+\tfrac12)}\;\cup\;
+              \mathbf{x}_{i,\,\textsc{bn}}^{(t+\tfrac12)}$ \COMMENT{BN local}
+    \ENDFOR
+    \STATE \textbf{Step~S4 — broadcast $\mathbf{x}_i^{(t+1)}$ to every $s_{i,k}$ in plane $i$.}
+  \ENDFOR
+  \RETURN $\{\mathbf{x}_i^{(T)}\}_{i\in\mathcal{N}}$
+\end{algorithmic}
+\end{algorithm}
+
+% =====================================================================
+% Section IV: Experiments lands in subsequent commits.
+% =====================================================================
+
 \end{document}
