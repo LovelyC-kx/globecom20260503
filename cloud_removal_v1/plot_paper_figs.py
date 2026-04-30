@@ -75,9 +75,13 @@ FIG_GRID       = (7.2, 7.0)   # qualitative grid
 # Markers used at every Nth epoch / round.
 MARKERS = ("o", "s", "D", "^", "v")
 
-# Marker-every-N — set so each curve has ~12 markers regardless of length
-# (matches FLSNN Fig 6's visual density: 60 rounds / 5 spacing = 12 markers).
-MARKER_TARGET_COUNT = 12
+# Marker-every-N — set so each curve has ~20 markers regardless of length.
+# Combined with smaller markersize (4.0pt below) this gives a "data-rich"
+# visual density: 600-ep centralized curve → marker every ~30 epochs;
+# 200-round federated → marker every ~2 evaluations (essentially every
+# evaluated point is annotated).  Heavier than FLSNN's ~12 per curve;
+# the user explicitly requested denser.
+MARKER_TARGET_COUNT = 20
 
 
 # ---------------------------------------------------------------------------
@@ -355,8 +359,8 @@ def _setup_mpl() -> None:
         "legend.handlelength": 1.6,
         "legend.handletextpad": 0.4,
         "legend.columnspacing": 0.9,
-        "lines.linewidth":     1.4,
-        "lines.markersize":    5.5,
+        "lines.linewidth":     1.3,
+        "lines.markersize":    4.0,
         "lines.markeredgewidth": 0.0,
         "grid.linewidth":      0.4,
         "grid.linestyle":      "--",
@@ -1175,11 +1179,11 @@ def fig7_centralized_4panel(args, out_dir: Path) -> None:
             if y_f.size == 0:
                 continue
             y_smooth = _smooth(y_f, w=9 if kind == "loss" else 3)
-            mev = _smart_marker_every(ep_f.size, target_count=12)
+            mev = _smart_marker_every(ep_f.size, target_count=20)
             ax.plot(ep_f, y_smooth,
                     color=color, marker=marker, markevery=mev,
-                    label=label, linestyle="-", markersize=4.5,
-                    linewidth=1.4, clip_on=True)
+                    label=label, linestyle="-", markersize=3.5,
+                    linewidth=1.3, clip_on=True)
             n_drawn += 1
 
         ax.set_xlabel("Epoch")
