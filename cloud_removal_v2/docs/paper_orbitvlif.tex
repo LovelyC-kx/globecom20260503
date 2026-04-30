@@ -981,4 +981,153 @@ $\FQS$ is a refinement rather than a load-bearing component.
 % V (conclusion) land in subsequent commits.
 % =====================================================================
 
+\subsection{Federated Cloud-Removal Performance}\label{sec:exp-federated}
+
+We deploy three backbones (\OrbitVLIF{}-SNN, \OrbitVLIF{}-ANN, and
+PlainUNet) on the $5\!\times\!10\!=\!50$ Walker-Star constellation under
+\textsc{FedBN}\,+\,Gossip with source-level Dirichlet
+$\alpha\!=\!0.1$ for $T\!=\!200$ rounds. All three share the
+identical pipeline of Algorithm~\ref{alg:orbitvlif} and differ only
+in the per-satellite network. Two additional \OrbitVLIF{}-SNN
+runs at $\alpha\!\in\!\{0.01,1.0\}$ probe sensitivity to the
+non-IID strength.
+
+\begin{table}[t]
+\centering
+\caption{Federated cloud-removal on CUHK-CR1\,+\,CR2 under
+\textsc{FedBN}\,+\,Gossip, $T\!=\!200$ rounds, source-level
+Dirichlet partition.  Numbers in brackets [\,$\cdot$\,] are pending
+the in-progress runs and will be filled in the camera-ready.}
+\label{tab:federated}
+\begin{tabular}{lcccc}
+\toprule
+Backbone (FedBN $\times$ Gossip)    & PSNR (dB) & SSIM & Comm (MB) & Wall (h) \\
+\midrule
+\multicolumn{5}{l}{\emph{$\alpha = 0.1$ (default non-IID)}} \\
+\OrbitVLIF{}-SNN (ours)              & [XX.XX]   & [0.XXXX]  & [XX]       & [X.XX] \\
+\OrbitVLIF{}-ANN                     & [XX.XX]   & [0.XXXX]  & [XX]       & [X.XX] \\
+PlainUNet (baseline)                 & $22.012$  & $0.6819$  & $8420$     & $4.37$ \\
+\midrule
+\multicolumn{5}{l}{\emph{Sensitivity to $\alpha$ (\OrbitVLIF{}-SNN)}} \\
+$\alpha = 0.01$ (extreme non-IID)    & [XX.XX]   & [0.XXXX]  & [XX]       & [X.XX] \\
+$\alpha = 1.0$  (near-IID)           & [XX.XX]   & [0.XXXX]  & [XX]       & [X.XX] \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\columnwidth]{fig5_federated_curves.pdf}
+  \caption{Federated test PSNR vs.\ communication round under
+  \textsc{FedBN}\,+\,Gossip with $\alpha\!=\!0.1$. Per-plane
+  shading shows the min--max envelope across the five orbital
+  planes.  Inset: cumulative inter-plane communication volume on
+  log scale.}
+  \label{fig:federated}
+\end{figure}
+
+\textbf{F\_plain reference.}\;\;The PlainUNet baseline reaches
+$22.01$\,dB / $0.6819$ at round $200$ with $8.42$\,GB cumulative
+inter-plane traffic, training in $4.37$\,h on a single $4090$. This
+constitutes the \emph{federated PSNR floor} against which the SNN
+and ANN \OrbitVLIF{} variants are measured. The $2.86$\,dB gap to
+the centralised PlainUNet ($24.872$\,dB on CR1, $23.040$\,dB on
+CR2) quantifies the cost of the source-level Dirichlet
+$\alpha\!=\!0.1$ partition: $30$ of $50$ satellites holding only
+$5$ tiles each cannot, on their own, recover the full encoder
+representation, and the per-round Gossip mixing only partially
+compensates over $200$ rounds.
+
+\textbf{Dirichlet partition statistics.}\;\;The actual per-client
+sample-count vectors recorded by the run are
+$[14, 5, 5, 5, 63, 5, 117, 5, 5, 5]$ on plane 0,
+$[5, 10, 64, 47, 5, 5, 5, 5, 118, 5]$ on plane 1, and similar on
+the remaining three planes; the $30/50\!=\!60\,\%$ floor share, the
+three $100\!+$-sample heavy clients, and the $\alpha\!=\!0.01$
+extreme case (which concentrates $\sim\!600$ tiles in two clients)
+are visualised in the camera-ready Dirichlet heatmap.
+
+\subsection{Energy and Per-Layer Spike Analysis}\label{sec:exp-energy}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\columnwidth]{fig6_energy_bars.pdf}
+  \caption{Per-image inference energy on a $64\!\times\!64$
+  centre-patch of CUHK-CR1.  ANN baseline (orange) at
+  $4.6$\,pJ/MAC; \OrbitVLIF{} reported as a dual bound:
+  \emph{conservative upper} (blue, hatched) at $4.6$\,pJ/MAC scaled
+  by the spike rate; \emph{optimistic lower} (blue, solid) at
+  $0.9$\,pJ/AC. Multipliers vs.\ ANN are annotated above each bar.
+  Dashed orange line marks the ANN reference level.}
+  \label{fig:energy}
+\end{figure}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\columnwidth]{fig9_per_layer_spike_rate.pdf}
+  \caption{\OrbitVLIF{} per-layer firing rate on CUHK-CR1 test
+  set, instrumented through forward hooks on every
+  LIF / $\FQS$ module.  The $5$-level $\FQS$ activation
+  produces $4/5$ non-zero output values per spike, biasing the
+  empirical floor to $\sim\!75\,\%$.}
+  \label{fig:firing-rate}
+\end{figure}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\columnwidth]{fig10_per_layer_energy_paired.pdf}
+  \caption{Per-layer energy: ANN (orange) vs.\ \OrbitVLIF{} SNN
+  (blue) for the top-$12$ contributing layers, $\mu$J per image.
+  ANN bars use $4.6$\,pJ/MAC; SNN bars use $0.9$\,pJ/AC times the
+  per-layer non-zero MAC count.}
+  \label{fig:energy-perlayer}
+\end{figure}
+
+We hook every \texttt{Conv2d} / \texttt{Linear} layer for MAC
+counting and every LIF / $\FQS$ module for firing-rate measurement
+on $32$ CR1 test patches.
+
+\textbf{Total energy.}\;\;Figure~\ref{fig:energy} reports
+per-image bounds on a $64\!\times\!64$ centre patch.
+The ANN baseline at $4.6$\,pJ/MAC consumes $20.75$\,mJ. \OrbitVLIF{}
+spans a dual bound:\;an \emph{optimistic lower} of $3.35$\,mJ
+($6.19\!\times$ reduction) using the binary-AC formula
+$0.9$\,pJ/AC, and a \emph{conservative upper} of $17.14$\,mJ
+($1.21\!\times$ reduction) treating each $\FQS$ output as a full
+$4.6$\,pJ MAC. The bracket honestly reflects the uncertainty in
+implementing $5$-level $\FQS$ on neuromorphic hardware: a
+binary-AC formula understates the cost of multi-level spikes,
+while a full-MAC formula overstates it. The true value sits in
+between, closer to the lower bound when target hardware
+(e.g., Loihi-2) supports $4$-bit accumulate primitives.
+
+\textbf{Per-layer attribution.}\;\;Figure~\ref{fig:firing-rate}
+shows that firing rates lie in the $\sim\!75\,$--$\,90\,\%$ band
+across all $\OrbitVLIF$ LIF layers; the $\FQS$ floor (four of five
+levels are non-zero) bounds this from below at $0.75$ regardless
+of input. Figure~\ref{fig:energy-perlayer} pairs ANN and SNN
+energy per layer and shows that the $\sim\!4\!\times$ savings are
+driven primarily by the encoder mid-stages and the \DSP{}
+bottleneck, where ANN MAC counts peak.
+
+\textbf{Energy is data-dependent in principle.}\;\;Comparing CR1
+and CR2 inferences on the same architecture (A1 ckpt vs.\ A2
+ckpt) we measure spike rates of $82.6\,\%$ and $82.3\,\%$
+respectively---differing by only $0.3$ percentage points and
+yielding identical $E_{\rm SNN}$ to two decimal places. Two
+mechanisms keep the spike rate stable across cloud-density
+distributions: (i) TDBN with $\gamma_{\rm init}\!=\!\alpha_{\rm bn}V_{\rm th}$
+normalises activation magnitudes to a fixed range; (ii) the
+$\FQS$ five-level non-zero floor enforces a structural lower bound
+near $80\,\%$. Spike rate \emph{is}, however, in principle a
+function of input statistics; we therefore do \emph{not} claim
+data-independence of the energy estimate, only that the two
+CUHK-CR distributions are statistically close enough to yield
+indistinguishable bounds.
+
+% =====================================================================
+% Section IV-F (qualitative) and V (conclusion) land in subsequent
+% commits.
+% =====================================================================
+
 \end{document}
