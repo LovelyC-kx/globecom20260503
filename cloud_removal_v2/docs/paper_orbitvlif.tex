@@ -888,4 +888,97 @@ demonstrates by removing them one at a time.
 % (qualitative), V (conclusion) land in subsequent commits.
 % =====================================================================
 
+\subsection{Component Ablation}\label{sec:exp-ablation}
+
+To isolate the contribution of each \OrbitVLIF{} building block, we
+ablate three of the four blocks defined in
+Section~\ref{sec:framework-arch} on CUHK-CR1 under matched training
+( $300$ epochs, otherwise identical to the centralised setting):
+
+\begin{itemize}
+  \item \textbf{B1: $-$\SHAM{}.}\;\;\SHAM{} (eq.~\ref{eq:sham}) is
+        replaced by the identity, removing the joint
+        temporal-amplitude / DCT-spatial recalibration.
+  \item \textbf{B2: $-$DualPath.}\;\;The PixelShuffle-LIF spatial
+        path of \MFRB{} (eqs.~\ref{eq:mfrb-cross}) is removed,
+        collapsing each block to a single LIF residual unit; the
+        $\sigma(g)$ cross-scale gate is also removed.
+  \item \textbf{B3: $-$\FQS{}.}\;\;The $5$-level quantisation of
+        eq.~\ref{eq:5qs-forward} is replaced by a binary
+        $\{0,1\}$ spike. The surrogate gradient window is kept
+        identical so that only the forward quantisation
+        granularity changes.
+\end{itemize}
+
+\AGFM{} is not separately ablated because its sigmoid-gated form
+degenerates to plain addition at $\boldsymbol{\gamma}\!=\!\tfrac12$ and
+no surgery is needed in code.
+
+\begin{table}[t]
+\centering
+\caption{Component ablation on CUHK-CR1 ($300$ epochs).
+$\Delta$ relative to the full model A1.  Row \emph{C2} reproduces
+the PlainUNet baseline of Table~\ref{tab:centralized}
+for direct comparison.}
+\label{tab:ablation}
+\begin{tabular}{lccccc}
+\toprule
+Variant & Params (M) & PSNR & $\Delta$\,PSNR & SSIM & $\Delta$\,SSIM \\
+\midrule
+\textbf{Full (A1)}        & $2.30$ & $\mathbf{25.374}$ & ---         & $\mathbf{0.7728}$ & ---           \\
+$-$\SHAM{} (B1)           & $2.22$ & $24.777$         & $-0.597$    & $0.7620$         & $-0.0108$    \\
+$-$DualPath (B2)          & $1.44$ & $24.858$         & $-0.516$    & $0.7633$         & $-0.0095$    \\
+$-$\FQS{} (B3)            & $2.30$ & $25.072$         & $-0.302$    & $0.7666$         & $-0.0062$    \\
+\midrule
+PlainUNet (C2, ref.)      & $1.31$ & $24.872$         & $-0.502$    & $0.7683$         & $-0.0045$    \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\columnwidth]{fig4_ablation_bars.pdf}
+  \caption{Component ablation on CUHK-CR1.  PSNR (left bars) and
+  SSIM (right bars) for the full \OrbitVLIF{} (A1) and the three
+  single-component ablations.  Numerical $\Delta$ values are
+  printed above each ablated bar; the diagonal-hatch pattern marks
+  the reference (Full) bar.}
+  \label{fig:ablation}
+\end{figure}
+
+\textbf{Component ranking.}\;\;Table~\ref{tab:ablation} and
+Fig.~\ref{fig:ablation} attribute the largest single-component
+PSNR drop to \SHAM{} ($-0.597$\,dB), followed by DualPath
+($-0.516$\,dB) and \FQS{} ($-0.302$\,dB). The ranking is
+consistent with the design rationale of
+Section~\ref{sec:framework-arch}: \SHAM{} contributes orthogonal
+information channels (temporal amplitude $\!\times\!$ DCT spatial)
+that no other component recovers; DualPath provides spatial
+high-frequency content otherwise absent from the temporal-LIF
+path; \FQS{} contributes the smallest drop because the
+$300$-epoch budget under-utilises its multi-level dynamic range
+(membrane potentials require $\sim$50 epochs to warm up past
+$V_\textrm{th}$ under the TDBN initialisation~\cite{ref:flsnn}).
+With the full $600$-epoch schedule of A1 we expect this gap to
+widen.
+
+\textbf{Co-design evidence.}\;\;A striking observation is that two
+of the three single-component ablations---B1 ($24.777$) and B2
+($24.858$)---fall \emph{below} the PlainUNet baseline ($24.872$),
+even though the ablated networks retain the rest of the
+\OrbitVLIF{} architecture. Removing one component therefore breaks
+\OrbitVLIF{} more than reverting entirely to a plain ANN. This is
+strong evidence that \OrbitVLIF's blocks are co-designed: the
+$+0.50$\,dB CR1 advantage of the full model is not the sum of
+independently-additive component gains but a synergistic effect
+that requires all four blocks to operate together. Only the B3
+ablation, which keeps the architecture intact and only relaxes
+the spike granularity, remains above PlainUNet---confirming that
+$\FQS$ is a refinement rather than a load-bearing component.
+
+% =====================================================================
+% Section IV-D (federated), IV-E (energy), IV-F (qualitative),
+% V (conclusion) land in subsequent commits.
+% =====================================================================
+
 \end{document}
