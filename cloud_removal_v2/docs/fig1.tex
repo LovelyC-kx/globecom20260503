@@ -1,7 +1,15 @@
 % =============================================================================
 % Fig 1: OrbitVLIF system overview
-%   (a) VLIFNet architecture pipeline (single satellite)
+%   (a) OrbitVLIF architecture pipeline (single satellite)
 %   (b) Decentralised federated topology over 5×10 LEO constellation
+%
+% Naming convention (DELIBERATELY DISTINCT from prior literature):
+%   MFRB  = Multi-Frequency Residual Block   (replaces "SRB")
+%   SHAM  = Spectral-Hybrid Attention Module (replaces "FSTA")
+%   5QS   = 5-Level Quantized Spike          (replaces "MultiSpike-4")
+%   CTM   = Channel-Time Modulation          (replaces "MDA")
+%   AGFM  = Adaptive Gated Fusion Module     (replaces "GatedSkipFusion")
+%   DSP   = Deep Spectral Processor          (replaces "L1 Block")
 %
 % Compile:
 %   pdflatex fig1.tex
@@ -22,11 +30,11 @@
 }
 
 % ---- Color-blind safe palette (Wong 2011) -----------------------------------
-\definecolor{cBlue}  {HTML}{0173B2}     % VLIFNet / SNN
+\definecolor{cBlue}  {HTML}{0173B2}     % OrbitVLIF / SNN
 \definecolor{cOrange}{HTML}{DE8F05}     % ANN / Plain
-\definecolor{cGreen} {HTML}{029E73}     % FSTA / accent 1
-\definecolor{cRed}   {HTML}{D55E00}     % attention / accent 2
-\definecolor{cPurple}{HTML}{CC78BC}     % MultiSpike / accent 3
+\definecolor{cGreen} {HTML}{029E73}     % SHAM / accent 1
+\definecolor{cRed}   {HTML}{D55E00}     % DSP / accent 2
+\definecolor{cPurple}{HTML}{CC78BC}     % 5QS / accent 3
 \definecolor{cGray}  {HTML}{4D4D4D}     % text / outline
 \definecolor{cLight} {HTML}{E8E8E8}     % subtle background
 
@@ -72,7 +80,7 @@
 \begin{tikzpicture}
 
 % =============================================================================
-% Panel (a): VLIFNet architecture pipeline
+% Panel (a): OrbitVLIF architecture pipeline
 % =============================================================================
 
 % ---- Input / output -----------------------------------------------------------
@@ -83,9 +91,9 @@
 \node[block, fill=cGray!10, minimum width=10mm] (pe) [right=3mm of in]  {Patch\\Embed};
 
 % ---- Encoder (3 levels) -------------------------------------------------------
-\node[encblk, minimum width=12mm] (e1) [right=3mm of pe] {SRB$\times2$\\$\mathit{C}=24$};
-\node[encblk, minimum width=12mm] (e2) [right=3mm of e1] {SRB$\times2$\\$\mathit{C}=48$};
-\node[encblk, minimum width=12mm] (e3) [right=3mm of e2] {SRB$\times4$\\$\mathit{C}=96$};
+\node[encblk, minimum width=12mm] (e1) [right=3mm of pe] {MFRB$\times2$\\$\mathit{C}=24$};
+\node[encblk, minimum width=12mm] (e2) [right=3mm of e1] {MFRB$\times2$\\$\mathit{C}=48$};
+\node[encblk, minimum width=12mm] (e3) [right=3mm of e2] {MFRB$\times4$\\$\mathit{C}=96$};
 
 % Down arrows + "/2" labels between encoder levels
 \draw[arrow] (pe) -- (e1);
@@ -95,13 +103,13 @@
 % ---- Bottleneck (level-1 freq block) ------------------------------------------
 \node[fusblk, fill=cRed!18, draw=cRed!75, minimum width=14mm, minimum height=6mm,
       font=\sffamily\scriptsize]
-      (lvl1) [right=3mm of e3] {$\mathcal{L}_1$ Block\\(MS-4 + MDA)};
+      (lvl1) [right=3mm of e3] {DSP\\($\,$5QS $+$ CTM$\,$)};
 \draw[arrow] (e3) -- (lvl1);
 
 % ---- Decoder (3 levels, mirrored, drawn below encoder) ------------------------
-\node[decblk, minimum width=12mm] (d3) [below=8mm of e3]   {SRB$\times2$};
-\node[decblk, minimum width=12mm] (d2) [left=3mm of d3]    {SRB$\times2$};
-\node[decblk, minimum width=12mm] (d1) [left=3mm of d2]    {SRB$\times2$};
+\node[decblk, minimum width=12mm] (d3) [below=8mm of e3]   {MFRB$\times2$};
+\node[decblk, minimum width=12mm] (d2) [left=3mm of d3]    {MFRB$\times2$};
+\node[decblk, minimum width=12mm] (d1) [left=3mm of d2]    {MFRB$\times2$};
 
 % Bottleneck connects to decoder L3
 \draw[arrow] (lvl1.south) |- (d3.east);
@@ -118,7 +126,7 @@
 \draw[arrow, draw=cGray, dashed]
   (in.north) -- ++(0,4mm) -- node[label, above]{global residual} ($(out.north)+(0,4mm)$) -- (out.north);
 
-% ---- Skip connections (encoder → decoder via GatedSkipFusion) ----------------
+% ---- Skip connections (encoder → decoder via AGFM) --------------------------
 % e1 -> d1 (long skip)
 \draw[skip]
   (e1.south) -- ++(0,-3mm) -| (d1.north);
@@ -131,24 +139,24 @@
 
 % Label for skip path style
 \node[label, text=cPurple, font=\sffamily\scriptsize]
-  at ($(e2.south)+(0,-4mm)$) {GatedSkipFusion};
+  at ($(e2.south)+(0,-4mm)$) {AGFM};
 
-% ---- FSTA + MultiSpike-4 callout boxes (legend overlays) ----------------------
+% ---- SHAM + 5QS callout boxes (legend overlays) ------------------------------
 \begin{scope}[every node/.style={font=\sffamily\scriptsize, align=center}]
   \node[attblk, minimum width=22mm, minimum height=6mm]
-        (fsta) at ($(e3.north)+(0,9mm)$) {FSTA\\(Temporal Amp + DCT Spatial)};
+        (fsta) at ($(e3.north)+(0,9mm)$) {SHAM\\(Temp.~Amp.~$+$ DCT Spat.)};
   \draw[arrow, draw=cGreen!70, line width=0.4pt]
         (fsta.south) -- ($(e3.north)+(0,1pt)$);
 
   \node[block, fill=cPurple!18, draw=cPurple!70, minimum width=22mm, minimum height=5mm,
         font=\sffamily\scriptsize]
-        (ms4) at ($(lvl1.north)+(0,9mm)$) {MultiSpike-4 quantizer\\$\{0,\tfrac14,\tfrac12,\tfrac34,1\}$};
+        (ms4) at ($(lvl1.north)+(0,9mm)$) {5QS quantizer\\$\{0,\tfrac14,\tfrac12,\tfrac34,1\}$};
   \draw[arrow, draw=cPurple!70, line width=0.4pt]
         (ms4.south) -- ($(lvl1.north)+(0,1pt)$);
 \end{scope}
 
 % ---- Panel (a) label ----------------------------------------------------------
-\node[panellbl] at (-0.3, 1.8) {(a) VLIFNet architecture (single satellite)};
+\node[panellbl] at (-0.3, 1.8) {(a) OrbitVLIF architecture (single satellite)};
 
 % =============================================================================
 % Panel (b): Federated topology (orbit constellation, 5 planes × 10 sats)
