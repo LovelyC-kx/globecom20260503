@@ -385,10 +385,11 @@ and sample tiles from each source proportional to
 $p_{i,k}^{(s)}$ subject to a minimum of five tiles per satellite.
 Smaller $\alpha$ produces more concentrated single-source clients;
 we adopt $\alpha \!=\! 0.1$ as the default, which yields a regime
-in which $\sim$70\,\% of the $50$ satellites hold the floor of five
-tiles while a small minority holds 100\,+ tiles
-(Section~\ref{sec:exp-federated}). Sensitivity to $\alpha$ is
-examined in Section~\ref{sec:exp-federated}.
+in which $30$ of the $50$ satellites ($60\,\%$) hold the floor of
+five tiles while three satellites individually hold over a hundred
+tiles each (the actual partition log records sizes
+$\{117,118,118\}$). Sensitivity to $\alpha$ is examined in
+Section~\ref{sec:exp-federated}.
 
 % =====================================================================
 % Section III: OrbitVLIF Framework lands in subsequent commits.
@@ -678,9 +679,9 @@ are jointly tuned to the source-level Dirichlet regime: (i)
 inter-plane mixing.
 
 \subsubsection*{Why \textsc{FedBN}}
-Under source-level Dirichlet $\alpha\!=\!0.1$, $\sim$70\,\% of the
-$50$ satellites hold a single source (CR1 \emph{or} CR2 only,
-floor $5$ tiles). The per-satellite BN running statistics
+Under source-level Dirichlet $\alpha\!=\!0.1$, $60\,\%$ of the
+$50$ satellites hold a single source at the floor of five tiles
+(Section~\ref{sec:sysmodel-partition}). The per-satellite BN running statistics
 $(\mu_{i,k},\sigma^2_{i,k})$ are therefore strongly source-conditioned.
 Averaging these statistics globally---as in vanilla
 \textsc{FedAvg}---would force a single neuron to encode the
@@ -700,27 +701,31 @@ $\mathbf{W}$ (eq.~\ref{eq:gossip}). The choice is motivated by two
 properties suited to satellite deployment: (i) Gossip is
 \emph{decentralised}---no plane needs to act as a coordinator,
 removing a single point of failure; (ii) per-round inter-plane
-bandwidth is $\mathcal{O}(N\!\cdot\!d)$ uplink and $\mathcal{O}(N\!\cdot\!d)$
-downlink per active edge, independent of the topology diameter.
-RelaySum's $\zeta^2\!\cdot\!\tau$ convergence term~\cite{ref:relaysum}
-dominates only when the inter-client gradient dissimilarity
-$\zeta^2$ is large; for source-level Dirichlet over $S\!=\!2$
-sources with the dense Charbonnier loss~\eqref{eq:loss}, $\zeta^2$
-is structurally smaller than for label-Dirichlet over many classes,
-and we observe that Gossip, AllReduce, and RelaySum perform within
-$\pm 0.1$\,dB of each other (Section~\ref{sec:exp-federated}).
-Gossip's decentralisation advantage therefore dictates the choice
-without an accuracy penalty.
+bandwidth is $\mathcal{O}(N\!\cdot\!d)$, independent of the
+topology diameter. The RelaySum
+analysis~\cite{ref:relaysum} bounds federated SGD convergence by a
+$\zeta^2\!\cdot\!\tau$ term that dominates only when the
+inter-client gradient dissimilarity $\zeta^2$ is large; for
+source-level Dirichlet over $S\!=\!2$ sources with the dense
+Charbonnier loss~\eqref{eq:loss}, $\zeta^2$ is structurally smaller
+than for label-Dirichlet over many classes, placing all three
+schemes in the same asymptotic order. Under this regime, Gossip's
+decentralisation property dictates the choice; we therefore focus
+on Gossip and do not run a head-to-head head against AllReduce or
+RelaySum in this work.
 
 \subsubsection*{Communication-cost accounting}
-Each round transmits $d$ float-32 weights for the conv subset of
-\OrbitVLIF{} ($d_\textsc{conv}\!\approx\!2.20$\,M after excluding
-BN affine) over each active inter-plane Gossip edge. With $5$
-planes and a chain topology of $4$ active inter-plane edges, this
-is $\sim 35$\,MB per round; over $T\!=\!200$ rounds the cumulative
-cross-plane traffic is $\sim 7$\,GB, dominated by Gossip rather
+The conv subset of \OrbitVLIF{} that participates in inter-plane
+Gossip is $d_\textsc{conv}\!\approx\!2.25$\,M float-32 parameters
+($\sim 9$\,MB) after excluding the local BN affine and running
+statistics. The aggregate per-round inter-plane traffic, summed
+over all active edges of the $5$-plane chain topology, is
+empirically $\sim 74$\,MB (full state-dict transmissions exchanged
+along the chain); over $T\!=\!200$ rounds the cumulative cross-plane
+traffic is therefore $\sim 15$\,GB, dominated by Gossip rather
 than the intra-plane ring AllReduce that operates on the
-quasi-stationary high-bandwidth channels.
+quasi-stationary high-bandwidth channels. Per-round numbers are
+recorded in Section~\ref{sec:exp-federated} (Table~III).
 
 The complete \OrbitVLIF{} decentralised training procedure is
 summarised in Algorithm~\ref{alg:orbitvlif}.
