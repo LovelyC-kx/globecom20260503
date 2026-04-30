@@ -206,7 +206,33 @@ class EnergyMeter:
 
     def energy_bounds_per_image(self, n_images: int,
                                 ann_pj_per_mac: float = 4.6,
-                                ac_pj_per_op: float = 0.9) -> Dict[str, float]:
+                                ac_pj_per_op: float = 0.077) -> Dict[str, float]:
+        """Compute per-image inference energy bounds.
+
+        Constants follow the SNN literature for edge / neuromorphic
+        deployment (the user-locked deployment target):
+
+        * ``ann_pj_per_mac = 4.6`` pJ/MAC -- standard 45 nm CMOS
+          fixed-point MAC cost from Horowitz, ISSCC 2014.
+
+        * ``ac_pj_per_op = 0.077`` pJ/SOP (= 77 fJ) -- per-SOP
+          (synaptic operation) cost on neuromorphic / in-memory
+          computing substrates such as Loihi-2, Speck, Akida.  This
+          is the constant adopted by FLSNN [Yang2025], ESDNet
+          [Song2024], and VLIF-deraining [Chen2025] for SNN
+          deployment energy reporting; ~12x lower than Horowitz's
+          0.9 pJ/AC for general-purpose CMOS.
+
+        The two bounds reported are:
+
+          ``energy_snn_lower_pj`` = effective_acs × 0.077 pJ
+              (neuromorphic SOP cost; deployment-target estimate)
+
+          ``energy_snn_upper_pj`` = effective_acs × 4.6 pJ
+              (conservative; treats every non-zero MAC as a full ANN
+              MAC; matches the case where neuromorphic acceleration
+              is unavailable or not applicable to a given layer).
+        """
         total_mac, total_nz = self.per_image_macs(n_images)
         return {
             "ann_macs": total_mac,
@@ -414,8 +440,15 @@ def main(argv=None) -> None:
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--device", type=str, default="cuda:0")
     p.add_argument("--out_dir", type=str, required=True)
-    p.add_argument("--ann_pj_per_mac", type=float, default=4.6)
-    p.add_argument("--ac_pj_per_op", type=float, default=0.9)
+    p.add_argument("--ann_pj_per_mac", type=float, default=4.6,
+                   help="Energy per ANN MAC, in pJ.  Default 4.6 = "
+                        "Horowitz 2014 ISSCC 45 nm fixed-point MAC.")
+    p.add_argument("--ac_pj_per_op", type=float, default=0.077,
+                   help="Energy per SNN synaptic operation (SOP), in pJ.  "
+                        "Default 0.077 = 77 fJ, the neuromorphic / in-memory "
+                        "computing SOP cost used by FLSNN [Yang2025], ESDNet "
+                        "[Song2024], VLIF [Chen2025].  Set to 0.9 to use the "
+                        "Horowitz 45 nm general-CMOS AC cost instead.")
     args = p.parse_args(argv)
 
     Path(args.out_dir).mkdir(parents=True, exist_ok=True)
