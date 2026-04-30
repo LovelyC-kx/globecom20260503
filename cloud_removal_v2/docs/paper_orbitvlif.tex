@@ -141,4 +141,128 @@ computing.
 % Section content lands in subsequent commits — see plan in chat.
 % =====================================================================
 
+% =====================================================================
+% Section I: Introduction
+% Funnel structure: macro motivation → existing-method gap → field-level
+% solution (Space-CPN) → technical pivot (SNN) → our contributions.
+% =====================================================================
+\section{Introduction}\label{sec:intro}
+
+\IEEEPARstart{O}{ptical} Earth-observation satellites in low-Earth
+orbit (LEO) capture hundreds of gigabytes of imagery per orbit,
+underpinning environmental monitoring, disaster response, and
+defense applications. A substantial fraction of every captured
+frame is, however, occluded by clouds and must be restored before
+downstream analytics. Conventional pipelines downlink raw data to
+ground stations for restoration, but the satellite-to-ground link
+is bottlenecked by short visible windows ($\sim$10\,min per pass for
+LEO) and narrow-band radio frequency channels, incurring multi-minute
+end-to-end latency that defeats latency-critical applications such
+as wildfire localisation~\cite{ref:earthobs1,ref:earthobs2}.
+
+To bypass the downlink bottleneck, recent proposals on
+\emph{Space Computing Power Networks} (Space-CPN) push computation
+on-board, treating each orbital plane as a mesh of compute nodes
+interconnected by inter-satellite laser links
+(ISLs)~\cite{ref:spacecpn1,ref:spacecpn2}. Optical cloud removal
+becomes a canonical Space-CPN primitive: it is needed by every
+downstream task, and its data is local to individual satellites.
+
+\textbf{Yet the on-board energy budget is severe.} LEO platforms
+draw $\sim$100--200\,W from solar arrays charged during sunlit arcs
+and depleted on eclipse; dense artificial neural network (ANN)
+inference and training compete with attitude control, payload, and
+downlink for this shared budget. On 45\,nm CMOS, multiply-accumulate
+(MAC) operations dominate ANN cost at $\sim$4.6\,pJ each, which is
+prohibitive for the multi-G\,MAC convolutional or transformer
+backbones used by recent cloud-removal SOTA~\cite{ref:cuhkcr,
+ref:darkir}.
+
+\textbf{Spiking neural networks (SNNs) offer a structurally
+different operating point.} Activations are encoded as sparse,
+event-driven binary or multi-level spikes; silent neurons skip the
+multiply step entirely, and a 45\,nm accumulate-only operation
+costs $\sim$0.9\,pJ~\cite{ref:horowitz}. SNNs have been shown to
+match ANN accuracy within $\sim$3\,\% on classification benchmarks at
+roughly $10\!\times$ lower per-layer energy~\cite{ref:flsnn}. Recent
+work has applied SNNs to image deraining~\cite{ref:esdnet} and
+classification in satellite federated learning~\cite{ref:flsnn},
+yet \emph{pixel-level cloud removal under decentralized on-orbit
+training has not been demonstrated}.
+
+The closest precedent, the FLSNN framework of Yang \emph{et al.}~\cite{ref:flsnn},
+established the feasibility of decentralized federated SNN training
+on a Walker-Star constellation for the EuroSAT classification task.
+Three concrete gaps prevent its direct application to operational
+on-orbit cloud removal: (i) \emph{task-type gap} --- pixel
+regression has different gradient structure (dense, low-frequency,
+residual-dominated) from logit-driven classification; (ii)
+\emph{architectural gap} --- FLSNN's small spiking-CNN /
+spiking-ResNet backbones lack the U-Net structure, frequency-aware
+attention, and multi-level activation that recent SNN
+image-restoration work~\cite{ref:fsta-snn,ref:darkir} has shown
+essential for high-fidelity reconstruction; (iii)
+\emph{non-IID gap} --- satellite data heterogeneity is naturally
+driven by source (sensor, atmosphere, look angle) rather than by
+class label, calling for a source-level partition formulation that
+is absent from FLSNN's class-Dirichlet protocol.
+
+To close these three gaps, we present \OrbitVLIF, a co-designed
+spiking image-restoration network and decentralized federated
+learning system tailored for on-orbit cloud removal. Our
+\textbf{contributions} are:
+
+\begin{itemize}
+\item \textbf{We propose} a quantized spiking U-Net for cloud
+  removal that integrates four novel building blocks: a
+  \emph{Multi-Frequency Residual Block} (\MFRB) decomposing
+  features into temporal- and spatial-frequency parallel paths
+  fused via a cross-scale gate, a \emph{Spectral-Hybrid Attention
+  Module} (\SHAM) jointly recalibrating temporal-amplitude and
+  DCT-spatial dimensions, a \emph{5-Level Quantized Spike} (\FQS)
+  activation that quadruples per-spike representational range
+  while preserving spike sparsity, and an \emph{Adaptive Gated
+  Fusion Module} (\AGFM) for content-adaptive skip connections.
+  To our knowledge, \OrbitVLIF{} is the first SNN architecture
+  explicitly designed for optical cloud removal.
+
+\item \textbf{We provide} the first end-to-end demonstration of
+  decentralized federated learning for spiking image regression on
+  a satellite constellation. We deploy \OrbitVLIF{} on a
+  $5\!\times\!10$ Walker-Star configuration under
+  \textsc{FedBN}\,+\,Gossip aggregation with \emph{source-level}
+  Dirichlet non-IID partition over the joint
+  CUHK-CR1\,+\,CR2~\cite{ref:cuhkcr} cloud benchmark, and compare
+  three matched-protocol backbones (SNN \OrbitVLIF, ANN
+  \OrbitVLIF, plain ANN U-Net).
+
+\item \textbf{We disclose} per-image inference energy with a
+  transparent dual-bound estimate that \emph{explicitly} brackets
+  the cost of the multi-level \FQS{} quantization: a conservative
+  upper bound at the ANN MAC formula (4.6\,pJ/MAC) and an
+  optimistic lower bound at the binary AC formula (0.9\,pJ/AC).
+  This honest bracket avoids the common pitfall of reporting only
+  the optimistic AC formula on networks that use multi-level spikes.
+
+\item \textbf{We conduct} extensive evaluation over $11$ training
+  runs (centralized SOTA, three-way component ablation, federated
+  three-backbone comparison, and Dirichlet $\alpha$-sensitivity)
+  showing that \OrbitVLIF{} attains $25.37$\,dB / $0.7728$
+  PSNR/SSIM on CUHK-CR1 with only $2.30$\,M parameters and a
+  $1.21\!\times$\,--\,$6.19\!\times$ inference-energy reduction over
+  the ANN baseline.
+\end{itemize}
+
+The remainder of the paper is organized as follows.
+Section~\ref{sec:sysmodel} formalises the constellation, federated
+learning problem, and source-level Dirichlet non-IID partition.
+Section~\ref{sec:framework} details the \OrbitVLIF{} architecture
+and decentralized training pipeline. Section~\ref{sec:experiments}
+reports centralized, ablation, federated, and energy
+results. Section~\ref{sec:conclusion} concludes.
+
+% =====================================================================
+% Section II: System Model lands in subsequent commits.
+% =====================================================================
+
 \end{document}
