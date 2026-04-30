@@ -177,10 +177,17 @@ def _warn(msg: str) -> None:
 
 
 def _resolve_figs(spec: str) -> List[int]:
-    """'all' | '2,3,5' | '4'  →  sorted list of int fig ids in {2,3,4,5,6}."""
-    valid = {2, 3, 4, 5, 6, 7, 9, 10}
+    """'all' | '2,3,5' | '4'  →  sorted list of valid int fig ids.
+
+    'all' returns the figures that are expected to render meaningfully
+    on the current data set.  Fig 5 (federated curves) is excluded
+    from 'all' until the F-series runs are complete; pass
+    ``--figs 5`` explicitly to render it from a single F_plain run.
+    """
+    valid    = {2, 3, 4, 5, 6, 7, 9, 10}
+    in_all   = {2, 3, 4, 6, 7, 9, 10}        # excludes 5 (federated)
     if spec.strip().lower() == "all":
-        return sorted(valid)
+        return sorted(in_all)
     out: List[int] = []
     for tok in spec.split(","):
         tok = tok.strip()
@@ -1105,13 +1112,22 @@ def fig6_energy_bars(args, out_dir: Path) -> None:
         _warn(f"Fig 6: all energy fields zero/negative in {energy_dir}; skipping")
         return
 
+    # Compute r̄ = effective_acs / total_macs to label the formula visually.
+    total_mac = float(bounds.get("ann_macs", 0.0) or 0.0)
+    eff_acs   = float(bounds.get("snn_effective_acs", 0.0) or 0.0)
+    r_bar     = (eff_acs / total_mac) if total_mac > 0 else 0.0
+
+    cfg     = summary.get("config", {}) or {}
+    ann_pj  = float(cfg.get("ann_pj_per_mac", 4.6) or 4.6)
+    ac_pj   = float(cfg.get("ac_pj_per_op",   0.077) or 0.077)
+
     bars = [
-        ("ANN baseline\n(4.6 pJ/MAC)",          ann,   PALETTE_ORANGE,
+        (f"ANN baseline\n({ann_pj:.1f} pJ/MAC)",           ann,   PALETTE_ORANGE,
             dict(edgecolor="black", linewidth=0.6)),
-        ("SNN upper\n(conservative)",           upper, PALETTE_BLUE,
+        (f"SNN upper\n(MAC × $r$ × {ann_pj:.1f}\\,pJ)",    upper, PALETTE_BLUE,
             dict(edgecolor=PALETTE_BLUE, linewidth=0.6,
                  linestyle="--", facecolor="white", hatch="///")),
-        ("SNN lower\n(0.077 pJ/SOP)",           lower, PALETTE_BLUE,
+        (f"SNN lower\n(MAC × $r$ × {ac_pj*1000:.0f}\\,fJ/SOP)", lower, PALETTE_BLUE,
             dict(edgecolor="black", linewidth=0.6)),
     ]
 
@@ -1149,6 +1165,21 @@ def fig6_energy_bars(args, out_dir: Path) -> None:
     # Headroom for top labels on log scale.
     cur_lo, cur_hi = ax.get_ylim()
     ax.set_ylim(cur_lo, cur_hi * 4.0)
+
+    # Annotate r̄ — the effective non-zero MAC ratio that links the
+    # ANN bar (no spike sparsity) to the SNN bars (gated by r).
+    if r_bar > 0:
+        ax.text(0.02, 0.97,
+                f"$\\bar{{r}}$ (effective non-zero MAC ratio) "
+                f"$= {r_bar:.3f}$\n"
+                f"$E_{{\\rm SNN}} = \\sum_\\ell \\mathrm{{MAC}}_\\ell"
+                f"\\,r_\\ell\\,e_{{\\rm op}}$",
+                transform=ax.transAxes, fontsize=6.5,
+                color=cfg.get("_dummy", PALETTE_GRAY),
+                va="top", ha="left",
+                bbox=dict(boxstyle="round,pad=0.25",
+                          facecolor="white", edgecolor=PALETTE_GRAY,
+                          linewidth=0.4, alpha=0.85))
 
     fig.tight_layout(pad=0.3)
     _save_pdf(fig, out_dir / "fig6_energy_bars.pdf")
@@ -1325,7 +1356,12 @@ def fig9_per_layer_spike_rate(args, out_dir: Path) -> None:
     for r in raw:
         if not isinstance(r, dict):
             continue
-        rate = r.get("mean_firing_rate")
+        # PRIMARY: nonzero_firing_rate = fraction of LIF outputs > 0.
+        # FALLBACK: mean_firing_rate (output mean intensity, matches
+        # nonzero for binary LIF but is lower for 5QS multi-level).
+        rate = r.get("nonzero_firing_rate")
+        if rate is None:
+            rate = r.get("mean_firing_rate")
         name = r.get("name", "")
         if rate is None or not name:
             continue
@@ -1363,7 +1399,8 @@ def fig9_per_layer_spike_rate(args, out_dir: Path) -> None:
     ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v*100:.0f}%"))
     ax.grid(True, axis="y", alpha=0.3, linewidth=0.4)
     ax.set_axisbelow(True)
-    ax.set_title("Per-layer firing rate of OrbitVLIF (CR1)", fontsize=9)
+    ax.set_title("Per-layer LIF firing rate (fraction of non-zero outputs), CR1",
+                 fontsize=9)
 
     fig.tight_layout(pad=0.3)
     _save_pdf(fig, out_dir / "fig9_per_layer_spike_rate.pdf")
@@ -1404,12 +1441,16 @@ def fig10_per_layer_energy_paired(args, out_dir: Path) -> None:
     ac_pj  = float(s.get("config", {}).get("ac_pj_per_op",   0.077) or 0.077)
 
     # Convert energy to μJ for readable annotations (1 μJ = 1e6 pJ).
+    # Three bars per layer: ANN baseline + SNN dual bound (upper +
+    # lower).  SNN_upper uses the ANN MAC formula scaled by r_l (no
+    # neuromorphic acceleration); SNN_lower uses the SOP cost scaled
+    # by r_l (full neuromorphic deployment).
     for r in rows:
-        r["e_ann_uj"] = r["mac"]        * ann_pj / 1e6
-        r["e_snn_uj"] = r["eff_nz_mac"] * ac_pj  / 1e6
+        r["e_ann_uj"]       = r["mac"]        * ann_pj / 1e6
+        r["e_snn_upper_uj"] = r["eff_nz_mac"] * ann_pj / 1e6
+        r["e_snn_lower_uj"] = r["eff_nz_mac"] * ac_pj  / 1e6
 
-    # Filter to top-K by ANN energy (keep at most all layers that have
-    # > 0.5% of the maximum so the chart isn't dominated by 1-2 giants).
+    # Filter to top-K by ANN energy.
     rows = [r for r in rows if r["e_ann_uj"] > 0]
     if not rows:
         _warn("Fig 10: no positive-energy layers; skipping")
@@ -1418,39 +1459,50 @@ def fig10_per_layer_energy_paired(args, out_dir: Path) -> None:
     rows = rows[:topk]
 
     n = len(rows)
-    bar_w = 0.38
-    width = max(7.2, 0.55 * n)
+    bar_w = 0.27
+    width = max(7.2, 0.65 * n)
     fig, ax = plt.subplots(figsize=(width, 3.4))
     x = np.arange(n)
 
-    e_ann = [r["e_ann_uj"] for r in rows]
-    e_snn = [r["e_snn_uj"] for r in rows]
+    e_ann      = [r["e_ann_uj"]       for r in rows]
+    e_snn_up   = [r["e_snn_upper_uj"] for r in rows]
+    e_snn_low  = [r["e_snn_lower_uj"] for r in rows]
 
-    b_ann = ax.bar(x - bar_w/2, e_ann, bar_w, color=PALETTE_ORANGE,
-                   edgecolor="black", linewidth=0.4, label=f"ANN ({ann_pj:.1f} pJ/MAC)")
-    b_snn = ax.bar(x + bar_w/2, e_snn, bar_w, color=PALETTE_BLUE,
-                   edgecolor="black", linewidth=0.4, label=f"SNN ({ac_pj:.1f} pJ/AC)")
+    b_ann = ax.bar(x - bar_w, e_ann, bar_w, color=PALETTE_ORANGE,
+                   edgecolor="black", linewidth=0.4,
+                   label=f"ANN ({ann_pj:.1f} pJ/MAC)")
+    b_up  = ax.bar(x,         e_snn_up, bar_w, color=PALETTE_BLUE,
+                   edgecolor=PALETTE_BLUE, linewidth=0.4,
+                   facecolor="white", hatch="///",
+                   label=f"SNN upper ({ann_pj:.1f} pJ/MAC × $r_\\ell$)")
+    b_low = ax.bar(x + bar_w, e_snn_low, bar_w, color=PALETTE_BLUE,
+                   edgecolor="black", linewidth=0.4,
+                   label=f"SNN lower ({ac_pj*1000:.0f} fJ/SOP × $r_\\ell$)")
 
-    # Numerical labels (μJ, 3 sig fig)
-    for xi, va, vs in zip(x, e_ann, e_snn):
-        ax.text(xi - bar_w/2, va, f"{va:.2f}",
-                ha="center", va="bottom", fontsize=6.0,
+    # Numerical labels (μJ, 2 dp)
+    for xi, va, vu, vl in zip(x, e_ann, e_snn_up, e_snn_low):
+        ax.text(xi - bar_w, va, f"{va:.2f}",
+                ha="center", va="bottom", fontsize=5.5,
                 color=PALETTE_ORANGE, fontweight="bold")
-        ax.text(xi + bar_w/2, vs, f"{vs:.2f}",
-                ha="center", va="bottom", fontsize=6.0,
+        ax.text(xi,         vu, f"{vu:.2f}",
+                ha="center", va="bottom", fontsize=5.5,
+                color=PALETTE_BLUE, fontweight="bold")
+        ax.text(xi + bar_w, vl, f"{vl:.3f}",
+                ha="center", va="bottom", fontsize=5.5,
                 color=PALETTE_BLUE, fontweight="bold")
 
     ax.set_xticks(x)
     ax.set_xticklabels([_short_layer_name(r["name"]) for r in rows],
                        rotation=70, ha="right", fontsize=6.5)
     ax.set_ylabel(r"Energy per layer ($\mu$J)")
-    ax.legend(loc="upper right", frameon=False, fontsize=8)
+    ax.legend(loc="upper right", frameon=False, fontsize=7.5, ncol=1)
     ax.grid(True, axis="y", alpha=0.3, linewidth=0.4)
     ax.set_axisbelow(True)
     cur_lo, cur_hi = ax.get_ylim()
-    ax.set_ylim(0, cur_hi * 1.15)
+    ax.set_ylim(0, cur_hi * 1.18)
     ax.set_title(
-        f"Per-layer energy: ANN vs SNN (top-{n} by ANN energy)", fontsize=9)
+        f"Per-layer energy: ANN vs SNN dual bound (top-{n} by ANN)",
+        fontsize=9)
 
     fig.tight_layout(pad=0.3)
     _save_pdf(fig, out_dir / "fig10_per_layer_energy_paired.pdf")
