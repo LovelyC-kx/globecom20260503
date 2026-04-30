@@ -1076,7 +1076,8 @@ def fig6_energy_bars(args, out_dir: Path) -> None:
 
         ANN          = total_macs × ann_pj_per_mac      (4.6 pJ/MAC by default)
         SNN-upper    = effective_acs × ann_pj_per_mac   (conservative)
-        SNN-lower    = effective_acs × ac_pj_per_op     (0.9 pJ/AC, optimistic)
+        SNN-lower    = effective_acs × ac_pj_per_op     (0.077 pJ/SOP default,
+                                                          neuromorphic deployment)
 
     The two SNN bars bracket the true energy under the multi-level
     MultiSpike4 quantisation (binary AC formulae understate cost; full
@@ -1110,7 +1111,7 @@ def fig6_energy_bars(args, out_dir: Path) -> None:
         ("SNN upper\n(conservative)",           upper, PALETTE_BLUE,
             dict(edgecolor=PALETTE_BLUE, linewidth=0.6,
                  linestyle="--", facecolor="white", hatch="///")),
-        ("SNN lower\n(0.9 pJ/AC)",              lower, PALETTE_BLUE,
+        ("SNN lower\n(0.077 pJ/SOP)",           lower, PALETTE_BLUE,
             dict(edgecolor="black", linewidth=0.6)),
     ]
 
@@ -1379,7 +1380,8 @@ def fig10_per_layer_energy_paired(args, out_dir: Path) -> None:
     For each instrumented Conv2d / Linear layer, draw two adjacent bars:
 
         ANN (orange) = mac_per_image × ann_pj_per_mac (4.6 pJ default)
-        SNN (blue)   = effective_nz_mac × ac_pj_per_op (0.9 pJ default)
+        SNN (blue)   = effective_nz_mac × ac_pj_per_op (0.077 pJ/SOP default,
+                                                         neuromorphic substrate)
 
     Each bar is annotated with its numeric energy value (μJ unit chosen
     for readability).  Layers ordered by ANN energy descending and only
@@ -1399,7 +1401,7 @@ def fig10_per_layer_energy_paired(args, out_dir: Path) -> None:
     if s is None:
         return
     ann_pj = float(s.get("config", {}).get("ann_pj_per_mac", 4.6) or 4.6)
-    ac_pj  = float(s.get("config", {}).get("ac_pj_per_op",   0.9) or 0.9)
+    ac_pj  = float(s.get("config", {}).get("ac_pj_per_op",   0.077) or 0.077)
 
     # Convert energy to μJ for readable annotations (1 μJ = 1e6 pJ).
     for r in rows:
