@@ -919,17 +919,34 @@ def fig5_federated_curves(args, out_dir: Path) -> None:
             mean_psnr = np.nanmean(per_plane, axis=1)
             lo = np.nanmin(per_plane, axis=1)
             hi = np.nanmax(per_plane, axis=1)
-            ax.fill_between(rounds, lo, hi, color=color, alpha=0.18,
-                            linewidth=0.0)
         else:
             psnr_flat = d.get("eval_psnr")
             if psnr_flat is None:
                 _warn(f"Fig 5: {run_name} missing eval_psnr; skipping curve")
                 continue
             mean_psnr = np.asarray(psnr_flat, dtype=np.float64)
+            lo = hi = None
 
-        mev = _smart_marker_every(rounds.size)
-        (ln,) = ax.plot(rounds, mean_psnr,
+        # Filter NaN epochs (eval is sparse — eval_every>1 leaves NaN gaps).
+        # Without this filter matplotlib draws nothing because consecutive
+        # NaN values break the line into invisible segments.
+        valid = np.isfinite(mean_psnr)
+        if not valid.any():
+            _warn(f"Fig 5: {run_name} has no finite eval points; skipping curve")
+            continue
+        rnds_v   = rounds[valid]
+        mean_v   = mean_psnr[valid]
+        if lo is not None and hi is not None:
+            lo_v = lo[valid]
+            hi_v = hi[valid]
+            ax.fill_between(rnds_v, lo_v, hi_v, color=color, alpha=0.18,
+                            linewidth=0.0)
+        # Use only valid points downstream for both line + markers.
+        rounds_to_plot = rnds_v
+        psnr_to_plot   = mean_v
+
+        mev = _smart_marker_every(rounds_to_plot.size)
+        (ln,) = ax.plot(rounds_to_plot, psnr_to_plot,
                         color=color, marker=marker, markevery=mev,
                         label=label, linestyle="-")
         legend_handles.append(ln); legend_labels.append(label)
@@ -1242,41 +1259,49 @@ def _short_layer_name(full: str, max_len: int = 14) -> str:
 def fig9_per_layer_spike_rate(args, out_dir: Path) -> None:
     """Per-layer spike (firing) rate bar chart, FLSNN Fig 8a style.
 
-    Vertical bars, one per LIF / mem_update layer that the energy meter
-    instrumented.  Each bar's top is annotated with the firing-rate value
-    (4 decimals).  Layers with no firing-rate hooks (Conv2d-only layers)
-    are excluded.
-
-    Output: ``out_dir/fig9_per_layer_spike_rate.pdf``.
+    Reads ``per_layer_spikes`` directly from ``energy_summary.json``
+    (these are the LIF / mem_update layer entries — distinct from the
+    Conv2d / Linear entries in ``per_layer_macs``).  Each bar's top is
+    annotated with the firing-rate value (4 decimals).
     """
     _setup_mpl()
     import matplotlib.pyplot as plt
 
-    rows = _energy_per_layer_summary(Path(args.energy_dir))
-    if rows is None:
+    s = load_energy_summary(Path(args.energy_dir))
+    if s is None:
         return
-    sp_rows = [r for r in rows if r["firing_rate"] is not None]
+    raw = s.get("per_layer_spikes") or []
+    sp_rows: List[Dict] = []
+    for r in raw:
+        if not isinstance(r, dict):
+            continue
+        rate = r.get("mean_firing_rate")
+        name = r.get("name", "")
+        if rate is None or not name:
+            continue
+        try:
+            sp_rows.append({"name": name, "rate": float(rate)})
+        except (TypeError, ValueError):
+            continue
     if not sp_rows:
-        _warn("Fig 9: no per-layer firing-rate entries; skipping")
+        _warn("Fig 9: no per-layer firing-rate entries in energy_summary.json; "
+              "skipping")
         return
 
-    # Sort by firing_rate descending (most active layers leftmost is also OK,
-    # but for readability we sort by network depth implied by the layer name
-    # natural ordering — here we keep the energy_meter's emission order
-    # which already follows forward-pass order).
-    sp_rows = sorted(sp_rows, key=lambda r: r["name"])
-
+    # Keep forward-pass emission order from the energy meter (already
+    # sorted by hook-registration order, which matches network depth).
     n = len(sp_rows)
     width = max(7.2, 0.32 * n)
     fig, ax = plt.subplots(figsize=(width, 3.0))
     x = np.arange(n)
-    rates = [r["firing_rate"] for r in sp_rows]
-    bars = ax.bar(x, rates, color=PALETTE_BLUE, edgecolor="black", linewidth=0.4,
-                  width=0.72)
+    rates = [r["rate"] for r in sp_rows]
+    ax.bar(x, rates, color=PALETTE_BLUE, edgecolor="black", linewidth=0.4,
+           width=0.72)
 
     # Numerical label on top of every bar (FLSNN style).
+    ymax = max(rates) if rates else 1.0
     for xi, r in zip(x, rates):
-        ax.text(xi, r + 0.02, f"{r:.4f}",
+        ax.text(xi, r + ymax * 0.02, f"{r:.4f}",
                 ha="center", va="bottom", fontsize=6.5,
                 color=PALETTE_BLUE, fontweight="bold")
 
@@ -1284,7 +1309,7 @@ def fig9_per_layer_spike_rate(args, out_dir: Path) -> None:
     ax.set_xticklabels([_short_layer_name(r["name"]) for r in sp_rows],
                        rotation=70, ha="right", fontsize=6.5)
     ax.set_ylabel("Firing rate")
-    ax.set_ylim(0, max(rates) * 1.18)
+    ax.set_ylim(0, ymax * 1.20)
     ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v*100:.0f}%"))
     ax.grid(True, axis="y", alpha=0.3, linewidth=0.4)
     ax.set_axisbelow(True)
