@@ -504,4 +504,92 @@ under matched training.
 % Section III-A.2 (MFRB) and III-A.3 (SHAM) land in subsequent commits.
 % =====================================================================
 
+\subsubsection{\MFRB{}: Multi-Frequency Residual Block}\label{sec:framework-mfrb}
+
+\textbf{Problem.}\;\;
+A single LIF non-linearity acts as a temporal high-pass filter:
+when the membrane potential rises above $V_{\mathrm{th}}$, the
+neuron fires a spike that captures rapid temporal change but
+discards spatial high-frequency content carried by the residual
+$\mathbf{x}\!-\!\mathbf{x}_h$. For pixel-level cloud removal, both
+temporal contour cues (cloud edge transitions) and spatial
+high-frequency texture (vegetation, urban grid) are
+information-bearing, and a single-LIF residual block under-utilises
+the latter.
+\textbf{Candidate.}\;\;
+Stacking two LIF blocks sequentially doubles the compute cost
+without isolating the two frequency regimes.
+
+\textbf{Our choice.}\;\;
+The \MFRB{} (Fig.~\ref{fig:modules}\,(b)) parallelises a temporal
+LIF path and a spatial path that operates on a $2\!\times\!$
+PixelShuffle-downsampled representation:
+\begin{align}
+\mathbf{x}_h^{(1)} &\;=\; \mathrm{LIF}_1(\mathbf{x}),\quad
+\mathbf{x}_l^{(1)} \;=\; \mathbf{x}-\mathbf{x}_h^{(1)}, \\
+\mathbf{x}_h^{(2)} &\;=\; \mathrm{PSLIF}_2\!\big(\mathrm{TDBN}(\mathrm{Conv}_1(\mathbf{x}_h^{(1)},\mathbf{x}_l^{(1)}))\big),\\
+\mathbf{x}_{\mathrm{cross}} &\;=\; \sigma(g)\,\mathbf{x}_h^{(1)}\!\odot\!\mathbf{x}_h^{(2)},
+\label{eq:mfrb-cross}
+\end{align}
+where $\mathrm{LIF}_1$ uses $\FQS{}$, $\mathrm{PSLIF}_2$ first applies
+PixelShuffle-downsample and then LIF on the rearranged tensor (so
+that spatially-adjacent pixels become temporally-adjacent in the
+LIF state), and $\sigma(g)$ is a learnable scalar gate initialised
+to $0$ so that the cross-scale path opens gradually during training.
+The two paths are combined through learnable scales
+$(\alpha_h^{(\ell)},\alpha_l^{(\ell)})\!\in\!\R^2$ for $\ell\!\in\!\{1,2\}$
+and re-merged with a residual shortcut (Fig.~\ref{fig:modules}(b)).
+\textbf{Improvement.}\;\;
+Removing the spatial path collapses \MFRB{} to a single-LIF block;
+in Section~\ref{sec:exp-ablation} this ablation costs $0.52$\,dB
+PSNR.
+
+\subsubsection{\SHAM{}: Spectral-Hybrid Attention Module}\label{sec:framework-sham}
+
+\textbf{Problem.}\;\;
+Conventional channel-attention modules~\cite{ref:cbam} recalibrate
+features along the channel axis only, ignoring the temporal axis
+$T$ that exists exclusively in spiking networks and the spatial
+frequency axis that carries cloud texture. \textbf{Candidate.}\;\;
+Separate temporal-only or spatial-only attention each handles one
+dimension but loses the cross-dimension synergy.
+
+\textbf{Our choice.}\;\;
+\SHAM{} (Fig.~\ref{fig:modules}\,(c)) jointly recalibrates two
+complementary axes. Given the spike-train feature volume
+$\mathbf{X}\!\in\!\R^{T\times C\times H\times W}$:
+\paragraph{(i) Temporal Amplitude (TA) branch.}
+A spatially-pooled vector
+$\mathbf{a}\!\in\!\R^T$ is fed through a Linear$(T\!\to\!T)$
+followed by sigmoid to produce per-step weights
+$\mathbf{w}_T\!\in\!\R^T$, which are broadcast back over $C\!\times\!H\!\times\!W$.
+\paragraph{(ii) DCT-Spatial branch.}
+The temporal mean
+$\bar{\mathbf{X}}\!\in\!\R^{C\times H\times W}$ is mapped to its
+magnitude spectrum via 2-D real FFT,
+$|\mathcal{F}(\bar{\mathbf{X}})|$. A $1\!\times\!1$-Conv MLP
+modulates the magnitude (preserving the phase), the inverse FFT
+returns to the spatial domain, and a $7\!\times\!7$ convolution
+emits the spatial attention mask
+$\mathbf{w}_S\!\in\!\R^{1\times H\times W}$.
+The two are fused as
+\begin{equation}
+\mathrm{SHAM}(\mathbf{X}) \;=\;
+\mathbf{X}\;+\;\sigma(\eta)\!\cdot\!
+\big(\mathbf{w}_T\!\otimes\!\mathbf{w}_S\!\otimes\!\mathbf{X}\big),
+\label{eq:sham}
+\end{equation}
+where $\sigma(\eta)$ is a residual gate initialised to $0$, so the
+module starts as identity and never destabilises a partly-trained
+network. \textbf{Improvement.}\;\;
+Removing \SHAM{} costs the largest single-component PSNR drop in
+our ablation ($-0.60$\,dB on CR1, Section~\ref{sec:exp-ablation}),
+indicating that frequency-aware attention---rather than parameter
+count---is the principal source of \OrbitVLIF's quality advantage
+over the parameter-matched ANN baseline.
+
+% =====================================================================
+% Section III-A.4 (AGFM) onwards lands in subsequent commits.
+% =====================================================================
+
 \end{document}
