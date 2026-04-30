@@ -1,0 +1,226 @@
+% =============================================================================
+% Fig 1: OrbitVLIF system overview
+%   (a) VLIFNet architecture pipeline (single satellite)
+%   (b) Decentralised federated topology over 5×10 LEO constellation
+%
+% Compile:
+%   pdflatex fig1.tex
+%
+% Style: IEEE 2-column conference, vector-only, Wong-2011 color-blind palette,
+%        STIX math fonts, sans-serif body.  Designed for ~3.5"×2.4" rendering.
+% =============================================================================
+\documentclass[border=4pt, tikz]{standalone}
+
+\usepackage[T1]{fontenc}
+\usepackage{stix}                     % math + body in STIX (Times-like)
+\usepackage{amsmath, amssymb, bm}
+\usepackage{tikz}
+\usetikzlibrary{
+    positioning, arrows.meta, shapes.geometric, shapes.arrows,
+    fit, backgrounds, calc, decorations.pathreplacing, decorations.markings,
+    patterns, patterns.meta
+}
+
+% ---- Color-blind safe palette (Wong 2011) -----------------------------------
+\definecolor{cBlue}  {HTML}{0173B2}     % VLIFNet / SNN
+\definecolor{cOrange}{HTML}{DE8F05}     % ANN / Plain
+\definecolor{cGreen} {HTML}{029E73}     % FSTA / accent 1
+\definecolor{cRed}   {HTML}{D55E00}     % attention / accent 2
+\definecolor{cPurple}{HTML}{CC78BC}     % MultiSpike / accent 3
+\definecolor{cGray}  {HTML}{4D4D4D}     % text / outline
+\definecolor{cLight} {HTML}{E8E8E8}     % subtle background
+
+% ---- Block style helpers ----------------------------------------------------
+\tikzset{
+  font=\sffamily\footnotesize,
+  >={Stealth[length=4pt, width=3pt]},
+  every node/.style={inner sep=2pt, outer sep=0pt, align=center},
+  block/.style={
+    rectangle, rounded corners=1.5pt, draw=cGray, line width=0.4pt,
+    minimum width=14mm, minimum height=5mm,
+  },
+  encblk/.style={block, fill=cBlue!18, draw=cBlue!70},
+  decblk/.style={block, fill=cOrange!18, draw=cOrange!70},
+  attblk/.style={block, fill=cGreen!18, draw=cGreen!70, font=\sffamily\scriptsize},
+  ioblk/.style ={block, fill=cLight, draw=cGray, minimum width=10mm},
+  fusblk/.style={block, fill=cPurple!18, draw=cPurple!70, font=\sffamily\scriptsize,
+                 minimum width=8mm, minimum height=4mm},
+  arrow/.style={->, line width=0.6pt, draw=cGray, shorten >=1pt, shorten <=1pt},
+  skip/.style ={->, line width=0.5pt, draw=cPurple!70, dashed,
+                shorten >=1pt, shorten <=1pt},
+  label/.style={font=\sffamily\scriptsize, text=cGray},
+  panellbl/.style={font=\sffamily\bfseries\small, text=black},
+  satnode/.style={
+    circle, draw=cGray, line width=0.3pt, fill=white,
+    minimum size=2.6mm, inner sep=0pt, font=\sffamily\tiny,
+  },
+  satnodeS/.style={
+    circle, draw=cBlue, line width=0.45pt, fill=cBlue!25,
+    minimum size=2.8mm, inner sep=0pt,
+  },
+  planebox/.style={
+    rectangle, rounded corners=2pt, draw=cGray!50, line width=0.3pt,
+    fill=cLight!50, inner sep=2.5pt,
+  },
+  ringedge/.style={-, line width=0.3pt, draw=cGreen!75, opacity=0.85},
+  mdstedge/.style={-, line width=0.5pt, draw=cRed!85,
+                   decoration={markings, mark=at position 0.55 with {\arrow{Stealth[length=3pt]}}},
+                   postaction={decorate}},
+}
+
+\begin{document}
+\begin{tikzpicture}
+
+% =============================================================================
+% Panel (a): VLIFNet architecture pipeline
+% =============================================================================
+
+% ---- Input / output -----------------------------------------------------------
+\node[ioblk] (in)  at (0, 0)         {Cloudy\\$\mathbf{x}$};
+\node[ioblk] (out) at (12.6, 0)      {Restored\\$\hat{\mathbf{y}}$};
+
+% ---- Patch embed ---------------------------------------------------------------
+\node[block, fill=cGray!10, minimum width=10mm] (pe) [right=3mm of in]  {Patch\\Embed};
+
+% ---- Encoder (3 levels) -------------------------------------------------------
+\node[encblk, minimum width=12mm] (e1) [right=3mm of pe] {SRB$\times2$\\$\mathit{C}=24$};
+\node[encblk, minimum width=12mm] (e2) [right=3mm of e1] {SRB$\times2$\\$\mathit{C}=48$};
+\node[encblk, minimum width=12mm] (e3) [right=3mm of e2] {SRB$\times4$\\$\mathit{C}=96$};
+
+% Down arrows + "/2" labels between encoder levels
+\draw[arrow] (pe) -- (e1);
+\draw[arrow] (e1) -- node[label, above]{$\downarrow2$} (e2);
+\draw[arrow] (e2) -- node[label, above]{$\downarrow2$} (e3);
+
+% ---- Bottleneck (level-1 freq block) ------------------------------------------
+\node[fusblk, fill=cRed!18, draw=cRed!75, minimum width=14mm, minimum height=6mm,
+      font=\sffamily\scriptsize]
+      (lvl1) [right=3mm of e3] {$\mathcal{L}_1$ Block\\(MS-4 + MDA)};
+\draw[arrow] (e3) -- (lvl1);
+
+% ---- Decoder (3 levels, mirrored, drawn below encoder) ------------------------
+\node[decblk, minimum width=12mm] (d3) [below=8mm of e3]   {SRB$\times2$};
+\node[decblk, minimum width=12mm] (d2) [left=3mm of d3]    {SRB$\times2$};
+\node[decblk, minimum width=12mm] (d1) [left=3mm of d2]    {SRB$\times2$};
+
+% Bottleneck connects to decoder L3
+\draw[arrow] (lvl1.south) |- (d3.east);
+% Up arrows
+\draw[arrow] (d3) -- node[label, above]{$\uparrow2$} (d2);
+\draw[arrow] (d2) -- node[label, above]{$\uparrow2$} (d1);
+
+% Output head
+\node[block, fill=cGray!10, minimum width=10mm] (head) [left=3mm of d1] {Output\\Head};
+\draw[arrow] (d1) -- (head);
+\draw[arrow] (head.west) -- ++(-3mm,0) |- (out.west);
+
+% Residual connection from input to output
+\draw[arrow, draw=cGray, dashed]
+  (in.north) -- ++(0,4mm) -- node[label, above]{global residual} ($(out.north)+(0,4mm)$) -- (out.north);
+
+% ---- Skip connections (encoder → decoder via GatedSkipFusion) ----------------
+% e1 -> d1 (long skip)
+\draw[skip]
+  (e1.south) -- ++(0,-3mm) -| (d1.north);
+% e2 -> d2
+\draw[skip]
+  (e2.south) -- ++(0,-2mm) -| (d2.north);
+% e3 -> d3
+\draw[skip]
+  (e3.south) -- ++(0,-1mm) -| (d3.north);
+
+% Label for skip path style
+\node[label, text=cPurple, font=\sffamily\scriptsize]
+  at ($(e2.south)+(0,-4mm)$) {GatedSkipFusion};
+
+% ---- FSTA + MultiSpike-4 callout boxes (legend overlays) ----------------------
+\begin{scope}[every node/.style={font=\sffamily\scriptsize, align=center}]
+  \node[attblk, minimum width=22mm, minimum height=6mm]
+        (fsta) at ($(e3.north)+(0,9mm)$) {FSTA\\(Temporal Amp + DCT Spatial)};
+  \draw[arrow, draw=cGreen!70, line width=0.4pt]
+        (fsta.south) -- ($(e3.north)+(0,1pt)$);
+
+  \node[block, fill=cPurple!18, draw=cPurple!70, minimum width=22mm, minimum height=5mm,
+        font=\sffamily\scriptsize]
+        (ms4) at ($(lvl1.north)+(0,9mm)$) {MultiSpike-4 quantizer\\$\{0,\tfrac14,\tfrac12,\tfrac34,1\}$};
+  \draw[arrow, draw=cPurple!70, line width=0.4pt]
+        (ms4.south) -- ($(lvl1.north)+(0,1pt)$);
+\end{scope}
+
+% ---- Panel (a) label ----------------------------------------------------------
+\node[panellbl] at (-0.3, 1.8) {(a) VLIFNet architecture (single satellite)};
+
+% =============================================================================
+% Panel (b): Federated topology (orbit constellation, 5 planes × 10 sats)
+% =============================================================================
+
+% Place panel (b) below panel (a) with vertical gap
+\begin{scope}[shift={(0, -5.6)}]
+  \node[panellbl] at (-0.3, 2.4)
+        {(b) Decentralised satellite federation: $5$ orbital planes $\times\,10$ satellites};
+
+  % Define 5 planes laid horizontally
+  \def\nsat{10}
+  \def\nplane{5}
+
+  \foreach \p in {0,1,2,3,4} {
+    % Plane y-position
+    \pgfmathsetmacro{\px}{2.4*\p + 0.6}
+
+    % Plane bounding box (drawn first as background)
+    \begin{pgfonlayer}{background}
+      \node[planebox, minimum width=22mm, minimum height=22mm]
+            (plane\p) at (\px, 0) {};
+    \end{pgfonlayer}
+
+    % Label above each plane
+    \node[label, text=cGray, anchor=south]
+          at ($(plane\p.north)+(0,1pt)$) {Plane $\mathcal{P}_{\p}$};
+
+    % Place 10 satellites on a circle inside this plane
+    \foreach \i in {0,...,9} {
+      \pgfmathsetmacro{\ang}{(\i / \nsat) * 360}
+      \coordinate (P\p-S\i) at ($(plane\p.center) + (\ang:7.5mm)$);
+      \ifnum\i=0
+        \node[satnodeS] at (P\p-S\i) {};
+      \else
+        \node[satnode]  at (P\p-S\i) {};
+      \fi
+    }
+
+    % Intra-plane gossip ring (connect adjacent satellites in cycle)
+    \foreach \i [evaluate=\i as \j using int(mod(\i+1,10))] in {0,...,9} {
+      \draw[ringedge] (P\p-S\i) -- (P\p-S\j);
+    }
+  }
+
+  % MDST inter-plane edges (selected, not full mesh — represents minimum spanning tree)
+  % Plane 0 ↔ 1, 1 ↔ 2, 2 ↔ 3, 3 ↔ 4 (root chain)
+  \foreach \a/\b in {0/1, 1/2, 2/3, 3/4} {
+    \draw[mdstedge] (P\a-S0) to[bend left=20] (P\b-S0);
+  }
+  % One additional inter-plane shortcut (typical MDST has > N-1 redundancy)
+  \draw[mdstedge, draw=cRed!50, dashed, line width=0.4pt]
+        (P0-S0) to[bend left=35] (P4-S0);
+
+  % Legend (right of last plane)
+  \begin{scope}[shift={(13.0, 0.4)}]
+    \node[satnode]  (lg1) at (0,1.0) {};
+    \node[label, anchor=west] at ($(lg1.east)+(2pt,0)$) {Sat. (worker)};
+    \node[satnodeS] (lg2) at (0,0.6) {};
+    \node[label, anchor=west] at ($(lg2.east)+(2pt,0)$) {Plane head};
+    \draw[ringedge, line width=0.7pt] (-1.5mm, 0.2) -- (1.5mm, 0.2);
+    \node[label, anchor=west] at (3pt, 0.2) {Intra-plane gossip};
+    \draw[mdstedge, line width=0.7pt] (-1.5mm,-0.2) -- (1.5mm,-0.2);
+    \node[label, anchor=west] at (3pt, -0.2) {Inter-plane MDST};
+  \end{scope}
+
+  % FedBN annotation under the planes
+  \node[label, text=cGray, font=\sffamily\scriptsize, align=center]
+        at (6, -1.8)
+        {FedBN $+$ Gossip $+$ Dirichlet$(\alpha\!=\!0.1)$ partition over cloud-type label};
+
+\end{scope}
+
+\end{tikzpicture}
+\end{document}
