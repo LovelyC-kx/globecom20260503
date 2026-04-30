@@ -75,8 +75,9 @@ FIG_GRID       = (7.2, 7.0)   # qualitative grid
 # Markers used at every Nth epoch / round.
 MARKERS = ("o", "s", "D", "^", "v")
 
-# Marker-every-N — set so each curve has ~6–8 markers regardless of length.
-MARKER_TARGET_COUNT = 7
+# Marker-every-N — set so each curve has ~12 markers regardless of length
+# (matches FLSNN Fig 6's visual density: 60 rounds / 5 spacing = 12 markers).
+MARKER_TARGET_COUNT = 12
 
 
 # ---------------------------------------------------------------------------
@@ -1174,7 +1175,7 @@ def fig7_centralized_4panel(args, out_dir: Path) -> None:
             if y_f.size == 0:
                 continue
             y_smooth = _smooth(y_f, w=9 if kind == "loss" else 3)
-            mev = _smart_marker_every(ep_f.size, target_count=10)
+            mev = _smart_marker_every(ep_f.size, target_count=12)
             ax.plot(ep_f, y_smooth,
                     color=color, marker=marker, markevery=mev,
                     label=label, linestyle="-", markersize=4.5,
