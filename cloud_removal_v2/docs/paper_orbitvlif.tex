@@ -1,0 +1,144 @@
+% =============================================================================
+% paper_orbitvlif.tex
+%
+% OrbitVLIF: Brain-Inspired Decentralized Satellite Learning for
+%            On-Orbit Optical Cloud Removal
+%
+% IEEE conference style, single-file standalone, ~6 pages target.
+%
+% Module naming (deliberately distinct from prior literature):
+%   OrbitVLIF                                       (was: VLIFNet)
+%   MFRB  = Multi-Frequency Residual Block          (was: SRB)
+%   SHAM  = Spectral-Hybrid Attention Module        (was: FSTA)
+%   5QS   = 5-Level Quantized Spike                 (was: MultiSpike-4)
+%   CTM   = Channel-Time Modulation                 (was: MDA)
+%   AGFM  = Adaptive Gated Fusion Module            (was: GatedSkipFusion)
+%   DSP   = Deep Spectral Processor                 (was: L1 Block)
+%
+% Build:
+%   pdflatex paper_orbitvlif.tex
+%   bibtex   paper_orbitvlif
+%   pdflatex paper_orbitvlif.tex
+%   pdflatex paper_orbitvlif.tex
+%
+% Figures expected under ./figures/:
+%   fig1.pdf                          (TikZ — system overview)
+%   fig2_modules.pdf                  (TikZ — 5QS / MFRB / SHAM zoom-ins)
+%   fig3_centralized_curves.pdf       (Python — A1/A2/C2 PSNR vs ep)
+%   fig4_qualitative_grid.pdf         (Python — 4×4 qualitative)
+%   fig5_ablation_bars.pdf            (Python — A1 vs B1/B2/B3)
+%   fig6_federated_curves.pdf         (Python — F_SNN/F_ANN/F_plain)
+%   fig7_centralized_4panel.pdf       (Python — Loss + PSNR, CR1+CR2)
+%   fig8_energy_bars.pdf              (Python — ANN/SNN total energy)
+%   fig9_per_layer_spike_rate.pdf     (Python — per-layer firing rate)
+%   fig10_per_layer_energy_paired.pdf (Python — per-layer paired energy)
+% =============================================================================
+
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+
+% --- Core packages ---
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{algorithm}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{hyperref}
+\usepackage{url}
+
+% --- Hyperref colour conventions ---
+\hypersetup{
+  colorlinks   = true,
+  linkcolor    = black,
+  citecolor    = blue,
+  urlcolor     = blue,
+}
+
+% --- Useful macros ---
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\D}{\mathcal{D}}
+\newcommand{\Dir}{\mathrm{Dir}}
+\newcommand{\OrbitVLIF}{\textsc{OrbitVLIF}}
+\newcommand{\MFRB}{\textsc{MFRB}}
+\newcommand{\SHAM}{\textsc{SHAM}}
+\newcommand{\FQS}{\textsc{5QS}}
+\newcommand{\CTM}{\textsc{CTM}}
+\newcommand{\AGFM}{\textsc{AGFM}}
+\newcommand{\DSP}{\textsc{DSP}}
+
+% Path for figures
+\graphicspath{{figures/}}
+
+% =====================================================================
+\begin{document}
+
+% --- Title block ---
+\title{\OrbitVLIF: Brain-Inspired Decentralized Satellite Learning for
+       On-Orbit Optical Cloud Removal}
+
+\author{
+  \IEEEauthorblockN{(authors anonymised for review)}\\
+  \IEEEauthorblockA{(institutions anonymised for review)}
+}
+
+\maketitle
+
+% =====================================================================
+% Abstract
+% =====================================================================
+\begin{abstract}
+Space Computing Power Networks (Space-CPN) demand on-orbit data
+processing within tight power envelopes, while optical cloud
+removal---an essential preprocessing primitive for remote-sensing
+applications---remains dominated by computation-heavy artificial
+neural networks (ANNs) ill-suited to satellite power budgets.
+We present \OrbitVLIF, a brain-inspired decentralized satellite
+learning framework that unifies an energy-efficient spiking U-Net
+for cloud removal with a fully on-orbit federated training pipeline.
+At the model level we design four building blocks: a
+\emph{Multi-Frequency Residual Block} (\MFRB) that decomposes
+features into parallel temporal- and spatial-frequency paths
+fused via a cross-scale gate, a \emph{Spectral-Hybrid Attention
+Module} (\SHAM) jointly recalibrating temporal-amplitude and
+DCT-spatial dimensions, a \emph{5-Level Quantized Spike} activation
+(\FQS) that quadruples per-spike representational range while
+preserving spike sparsity, and an \emph{Adaptive Gated Fusion Module}
+(\AGFM) for skip connections.  At the system level we deploy the
+network on a $5\!\times\!10$ Walker-Star constellation under
+\textsc{FedBN}\,+\,Gossip aggregation with source-level Dirichlet
+non-IID partition over the joint CUHK-CR1\,+\,CR2 cloud benchmark.
+On a single 4090, \OrbitVLIF{} attains $25.37$\,dB / $0.7728$
+PSNR/SSIM on CUHK-CR1 ($+0.50$\,dB over a parameter-matched
+ANN U-Net at $0.57\!\times$ the parameter count) and $23.20$\,dB on
+CUHK-CR2.  Ablations attribute $0.60$, $0.52$, and $0.30$\,dB drops
+respectively to removing \SHAM, the dual-frequency \MFRB{} path,
+and \FQS{}---both single-component ablations falling
+\emph{below} the plain ANN U-Net baseline, evidence that
+\OrbitVLIF's modules form a co-designed whole.  Per-image
+inference energy is reduced by $1.21\!\times$\,--\,$6.19\!\times$
+over the ANN baseline ($20.75$\,mJ); the bracket reflects the
+multi-level-spike granularity, conservatively bounded by a
+$4.6$\,pJ/MAC formula and optimistically by a $0.9$\,pJ/AC formula.
+To our knowledge this is the first end-to-end demonstration of
+decentralized federated learning for spiking image regression on a
+satellite constellation.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Space computing power networks, spiking neural networks, optical
+cloud removal, decentralized federated learning, neuromorphic
+computing.
+\end{IEEEkeywords}
+
+% =====================================================================
+% Section content lands in subsequent commits — see plan in chat.
+% =====================================================================
+
+\end{document}
