@@ -394,4 +394,114 @@ examined in Section~\ref{sec:exp-federated}.
 % Section III: OrbitVLIF Framework lands in subsequent commits.
 % =====================================================================
 
+% =====================================================================
+% Section III: The OrbitVLIF Framework
+% Strategy: state architecture overview first (anchor figure refs),
+% then introduce each building block via the four-step
+% problem→candidate→choice→improvement template.
+% =====================================================================
+\section{The \OrbitVLIF{} Framework}\label{sec:framework}
+
+The \OrbitVLIF{} framework consists of two co-designed parts: a
+quantized spiking U-Net (Section~\ref{sec:framework-arch}) and a
+decentralized federated training pipeline
+(Section~\ref{sec:framework-fl}). Figure~\ref{fig:overview} shows
+the full system: the network ingests a 4-D RGB tensor
+$\mathbf{c}\!\in\!\R^{B\times 3\times H\times W}$ on each satellite,
+produces a clean image $\hat{\mathbf{y}}$ via four \OrbitVLIF{}
+building blocks (Fig.~\ref{fig:modules}), and shares
+weights across $50$ satellites under \textsc{FedBN}\,+\,Gossip.
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=\textwidth]{fig1.pdf}
+  \caption{\OrbitVLIF{} system overview. \textbf{(a)} Single-satellite
+  network: a three-level U-Net with \MFRB{} blocks at each encoder /
+  decoder level, a \DSP{} bottleneck, \SHAM{} attention overlay, and
+  \AGFM{} gated skip connections. \textbf{(b)} Decentralized
+  $5\!\times\!10$ Walker-Star constellation: intra-plane ring
+  AllReduce (green) and inter-plane Gossip (red).}
+  \label{fig:overview}
+\end{figure*}
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=\textwidth]{fig2_modules.pdf}
+  \caption{\OrbitVLIF{} building-block zoom-ins. \textbf{(a)} The
+  \FQS{} activation replaces binary spikes (orange dashed) with a
+  $5$-level step function (blue), preserving spike sparsity while
+  quadrupling per-spike dynamic range; the rectangular surrogate
+  window $[0,4]$ with slope $\tfrac14$ enables stable training.
+  \textbf{(b)} The \MFRB{} parallelises a temporal-LIF and a
+  PixelShuffle-LIF spatial path, each with learnable
+  $(\alpha_h,\alpha_l)$ scales, fused by a cross-scale gate
+  $\sigma(g)$. \textbf{(c)} \SHAM{} jointly recalibrates the
+  temporal-amplitude and DCT-spatial dimensions of the feature
+  volume.}
+  \label{fig:modules}
+\end{figure*}
+
+\subsection{\OrbitVLIF{} Architecture}\label{sec:framework-arch}
+
+\OrbitVLIF{} is built atop a three-level spiking U-Net skeleton.
+The encoder progressively downsamples at $H/2^l$ for $l\in\{0,1,2\}$
+with channel widths $\{C, 2C, 4C\}$ and \MFRB{} block counts
+$\{2, 2, 4\}$; the bottleneck operates at $H/4$ resolution and
+embeds the \DSP{} block, which couples a spatial frequency MLP
+(\textsc{FreMLP}~\cite{ref:darkir}) with a $\FQS$-quantized LIF
+neuron and a multi-dimensional channel-time modulation
+(\CTM); the decoder is symmetric with \MFRB{} block counts
+$\{2,2,2\}$. Skip connections at each level pass through \AGFM{}.
+A global residual is added on the network output:
+\begin{equation}
+\hat{\mathbf{y}} \;=\; \mathbf{c} \;+\;
+\mathrm{Conv}\!\Big(\,\overline{\mathrm{Decoder}\!\big(\mathrm{Encoder}(\mathbf{c})\big)}^{(T)}\Big),
+\label{eq:globalresidual}
+\end{equation}
+where $\overline{(\cdot)}^{(T)}$ denotes the temporal mean over the
+$T\!=\!4$ spike-train steps used by every spiking module. Setting
+$C\!=\!24$ yields $d \approx 2.30\,$M trainable parameters, an
+order of magnitude smaller than recent diffusion-based cloud-removal
+SOTA~\cite{ref:cuhkcr}.
+
+\subsubsection{\FQS{}: 5-Level Quantized Spike}\label{sec:framework-5qs}
+
+\textbf{Problem.}\;\;
+Binary LIF activations $s_t\!\in\!\{0,1\}$ enable accumulate-only
+arithmetic but compress the per-step dynamic range to a single bit,
+which we find insufficient for pixel-level regression where
+intermediate features must encode subtle texture and colour
+gradients. \textbf{Candidate.}\;\;Continuous-valued ANN-style ReLU
+restores dynamic range but eliminates the energy advantage. We
+seek a third operating point that retains spike sparsity and yet
+expresses gradient magnitude.
+
+\textbf{Our choice.}\;\;
+Given the integrated membrane potential $u_t$ at time-step $t$, the
+$\FQS$ activation outputs a $5$-level quantized spike
+\begin{equation}
+s_t \;=\; \tfrac{1}{4}\!\cdot\!\mathrm{round}\!\big(\,\mathrm{clip}(u_t,\,0,\,4)\,\big)
+\;\in\;\{0,\,\tfrac14,\,\tfrac12,\,\tfrac34,\,1\},
+\label{eq:5qs-forward}
+\end{equation}
+combined with the soft-reset
+$u_{t+1}\!=\!\beta\,u_t\!+\!I_t\!-\!s_t\!\cdot\!V_{\mathrm{th}}$,
+where $\beta$ is the leak factor and $V_{\mathrm{th}}\!=\!0.15$ the
+threshold. \textbf{Improvement.}\;\;
+The non-differentiable~\eqref{eq:5qs-forward} is paired with a
+rectangular-window surrogate gradient
+\begin{equation}
+\frac{\partial s_t}{\partial u_t}\;\approx\;
+\frac{1}{4}\!\cdot\!\mathbb{1}\{0\le u_t\le 4\},
+\label{eq:5qs-surrogate}
+\end{equation}
+matching the active range of the forward step function and yielding
+unit-area gradient flow. Empirically (Section~\ref{sec:exp-ablation})
+$\FQS$ improves PSNR by $0.30$\,dB over the binary-spike ablation
+under matched training.
+
+% =====================================================================
+% Section III-A.2 (MFRB) and III-A.3 (SHAM) land in subsequent commits.
+% =====================================================================
+
 \end{document}
