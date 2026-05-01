@@ -340,14 +340,14 @@ high-frequency features $\mathbf{Z}_{2h}$ from $\mathbf{Z}_1$ and
 fuses them via a learnable scalar gate $g$ (initialized to zero so
 that $\sigma(g){=}0.5$ at start and the cross-group path
 $\sigma(g)\,\mathbf{X}_h\!\odot\!\mathbf{Z}_{2h}$ opens gradually).
-A shortcut $\mathrm{Conv}(\mathbf{X})$ is added to $\mathbf{Z}_2$
-before TCS-Att, after which a second residual $\mathbf{X}$ is added
-and \SHAM{} is applied:
+A shortcut $\mathrm{TDBN}(\mathrm{Conv}(\mathbf{X}))$ is added to
+$\mathbf{Z}_2$ before TCS-Att, after which a second residual
+$\mathbf{X}$ is added and \SHAM{} is applied:
 \begin{equation}
 \mathrm{DFRB}(\mathbf{X})
 =
 \SHAM{}\!\Bigl(
-\mathrm{TCS\text{-}Att}\!\bigl(\mathbf{Z}_2 + \mathrm{Conv}(\mathbf{X})\bigr)
+\mathrm{TCS\text{-}Att}\!\bigl(\mathbf{Z}_2 + \mathrm{TDBN}(\mathrm{Conv}(\mathbf{X}))\bigr)
 + \mathbf{X}
 \Bigr).
 \label{eq:dfrb}
