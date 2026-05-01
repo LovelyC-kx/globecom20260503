@@ -1,0 +1,477 @@
+% =============================================================================
+% paper_orbitalif.tex
+%
+% ORBITALIF: Orbital Attention-enhanced Leaky Integrate-and-Fire framework
+%            for decentralized onboard federated optical cloud removal.
+%
+% NEW DRAFT (user-supplied abstract + introduction).  This file is intended
+% to be the starting point for the user's own further editing; method,
+% experiments, and conclusion sections are NOT included here yet.
+%
+% --- Reference verification convention --------------------------------------
+%   Every \bibitem below is tagged in a comment with one of:
+%     [VERIFIED]      — author / title / venue / year cross-checked against
+%                       the actual primary source; OK to cite as-is.
+%     [USER VERIFY]   — paper exists but exact bibliographic fields (page
+%                       numbers, volume, doi) need user cross-check.
+%     [PLACEHOLDER]   — generic stub; user must supply a real reference
+%                       before submission.
+% --- IMPORTANT --------------------------------------------------------------
+%   Do NOT submit this paper while any \bibitem is still tagged [PLACEHOLDER]
+%   or while [USER VERIFY] entries have not been confirmed against the
+%   published or arXiv version.
+% =============================================================================
+
+\documentclass[conference]{IEEEtran}
+
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{caption}
+\hypersetup{
+  colorlinks   = true,
+  linkcolor    = blue,
+  citecolor    = blue,
+  urlcolor     = blue,
+}
+
+% --- Useful macros ---
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\D}{\mathcal{D}}
+\newcommand{\Dir}{\mathrm{Dir}}
+\newcommand{\OrbitALIF}{\textsc{OrbitALIF}}
+
+\graphicspath{{figures/}}
+
+\begin{document}
+
+% --- Title block ---
+\title{\OrbitALIF: Orbital Attention-enhanced Leaky Integrate-and-Fire
+       for Decentralized Onboard Federated Optical Cloud Removal}
+
+\author{
+  \IEEEauthorblockN{(authors anonymised for review)}\\
+  \IEEEauthorblockA{(institutions anonymised for review)}
+}
+
+\maketitle
+
+% =====================================================================
+% Abstract
+% =====================================================================
+\begin{abstract}
+Satellite networks can acquire massive space information with advanced
+remote sensing technologies, providing critical support for real-time
+applications such as natural disaster monitoring. Emerging Space
+Computing Power Networks provide a new architecture for coordinating
+onboard computing resources, enabling satellites to perform intelligent
+in-orbit processing collaboratively. Nevertheless, optical cloud
+removal is a high-fidelity dense restoration task, and existing
+artificial-neural-network-based models usually incur high computation
+and energy costs, making them difficult to sustain under the limited
+power supply and thermal conditions of satellite platforms.
+To tackle this issue, we propose \OrbitALIF{}, which exploits the
+sparse event-driven computation of spiking neural networks to reduce
+inference energy, while enhancing pixel-level restoration capability
+through attention- and receptive-field-enhanced modules and
+architecture.
+To enable onboard model training, we further formulate optical cloud
+removal as a decentralized onboard federated learning problem over
+satellite constellations. To the best of our knowledge, this is the
+first work to study this problem. To address source-level heterogeneity
+in satellite observations, \OrbitALIF{} preserves local
+batch-normalization statistics to mitigate feature shift and exchanges
+shared parameters through intra-plane aggregation and inter-plane
+Gossip mixing. Experiments show that the $2.30$\,M onboard deployment
+variant improves cloud-removal quality while reducing per-image
+inference energy by up to $72.3\!\times$. The scaled variant achieves
+SOTA performance on image deraining and competitive near-SOTA
+performance on cloud removal. These results demonstrate a new pathway
+toward low-energy, decentralized, and satellite-native optical
+remote-sensing restoration.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Spiking neural networks, optical cloud removal, decentralized
+federated learning, onboard satellite computing.
+\end{IEEEkeywords}
+
+% =====================================================================
+% Section I: Introduction
+% =====================================================================
+\section{Introduction}\label{sec:intro}
+
+Low-Earth-orbit optical remote-sensing satellite networks
+continuously acquire large-scale space information, providing critical
+data support for real-time applications such as natural disaster
+monitoring, emergency response, agricultural observation, environmental
+assessment, and defense surveillance~\cite{ref:earthobs1,ref:earthobs2}.
+However, optical remote-sensing imagery is highly vulnerable to cloud
+contamination, which degrades image usability and affects downstream
+tasks such as object detection, land-cover classification, and change
+detection. Conventional processing pipelines usually follow a
+``satellite acquisition--raw data downlink--ground-server processing''
+paradigm, where cloud-contaminated images are first transmitted to
+ground stations and then restored and analyzed on ground servers. As
+satellite constellations scale up and imaging resolution increases,
+this paradigm faces an increasingly severe timeliness bottleneck:
+visible contact windows between satellites and ground stations are
+limited, downlink bandwidth is constrained, and ground-side processing
+further introduces additional latency. Existing studies on onboard
+federated learning have also pointed out that satellite data
+transmission is a critical bottleneck for Earth-observation
+applications, directly limiting real-time space information
+services~\cite{ref:onboardfl-bottleneck}.
+
+Space Computing Power Networks (Space-CPN) provide a promising
+architecture to alleviate the above bottleneck. Instead of treating
+satellites merely as data acquisition and forwarding nodes, Space-CPN
+emphasizes the coordinated scheduling of communication, computation,
+and intelligent processing resources in space networks, enabling
+satellites to undertake part of the in-orbit data processing
+workload~\cite{ref:spacecpn1}. For optical cloud removal, this paradigm
+is particularly meaningful. Cloud contamination is a fundamental
+problem that must be addressed before optical remote-sensing data can
+be reliably used by downstream tasks. If cloud removal can be performed
+onboard, the downlink of low-quality raw observations can be reduced,
+the response speed of time-critical tasks can be improved, and cleaner
+inputs can be provided for subsequent interpretation. Recent studies on
+Space-CPN and in-orbit computing also regard distributed onboard
+computation as an important direction for future space information
+processing~\cite{ref:spacecpn1}.
+
+Nevertheless, onboard optical cloud removal is not a simple transfer
+of ground-side models to satellites. First, optical cloud removal is a
+high-fidelity dense image restoration task. It requires pixel-level
+recovery of cloud boundaries, thin-cloud textures, ground structures,
+and high-frequency details. Existing artificial neural network
+(ANN)-based cloud-removal models typically rely on continuous-valued
+activations and dense multiply-accumulate operations, resulting in
+considerable computation and energy costs. In particular, recent
+diffusion-based cloud-removal methods have achieved strong performance
+on high-resolution datasets such as CUHK-CR through progressive texture
+recovery, but their iterative inference process is inherently in
+tension with the limited power supply, thermal dissipation, and
+computing budget of onboard satellite platforms~\cite{ref:cuhkcr}.
+Therefore, onboard cloud-removal models should not only pursue offline
+PSNR/SSIM performance, but also consider inference energy, computation
+cost, and deployment feasibility.
+
+Spiking neural networks (SNNs) provide a computational paradigm
+different from conventional ANNs for low-energy onboard intelligence.
+SNNs transmit information through sparse event-driven spike activities,
+allowing silent neurons to skip unnecessary computation and enabling
+low-cost spike operations on neuromorphic hardware~\cite{ref:maass1997,
+ref:loihi}. For LEO satellite platforms constrained by solar power,
+payload energy consumption, and thermal control, such sparse
+computation is highly attractive. Previous studies have explored the
+potential of SNNs in low-level vision restoration tasks such as image
+deraining~\cite{ref:esdnet}, and SNNs have also been applied to
+decentralized federated classification in satellite
+scenarios~\cite{ref:flsnn}. However, optical cloud removal imposes
+stronger requirements on SNNs. Binary spikes can reduce energy
+consumption but may lose the fine-grained activation representation
+needed for pixel-level regression. Meanwhile, cloud occlusion is
+spatially non-uniform and spectrally complex, requiring the model to
+capture cloud boundaries, semi-transparent thin-cloud structures, and
+high-frequency ground textures simultaneously. Thus, an onboard SNN
+cloud-removal model must balance sparse low-energy computation with
+high-fidelity restoration.
+
+In addition to inference energy, onboard model training is also
+challenging. Due to differences in orbital positions, observation
+regions, sensor states, atmospheric conditions, and cloud types, local
+data on different satellites usually exhibit significant source-level
+heterogeneity. For example, some satellites may observe more thin-cloud
+samples, whereas others may mainly encounter thick clouds or complex
+cloud distributions. Centralizing all raw observations on the ground
+for training would incur high communication overhead and also
+contradict the trend toward autonomous in-orbit processing emphasized
+by Space-CPN. Federated learning provides a natural
+solution~\cite{ref:fedavg}: each satellite trains a model on its local
+data and exchanges model parameters rather than raw observations.
+However, standard centralized federated learning typically relies on a
+ground parameter server, whereas LEO constellations are characterized
+by intermittent connectivity and constrained intra-/inter-plane
+communication topologies. Decentralized inter-satellite collaborative
+training~\cite{ref:gossip-boyd} is therefore more suitable for
+constellation scenarios. Moreover, source-level heterogeneous data
+induce feature distribution shifts across satellites, and globally
+shared batch-normalization statistics may destroy local feature
+calibration. FedBN preserves local BN statistics to mitigate
+feature-shift non-IID, which matches the source-level heterogeneous
+satellite cloud-removal setting considered in this
+work~\cite{ref:fedbn}.
+
+The closest related work is FLSNN~\cite{ref:flsnn}, which demonstrates
+the feasibility of decentralized federated SNN training on a
+Walker-Star constellation for the EuroSAT classification task. However,
+directly applying this paradigm to onboard optical cloud removal faces
+three key gaps. The first is the \emph{task gap}: classification
+produces discrete labels, whereas cloud removal is dense pixel
+regression with different gradient structures, loss functions, and
+restoration objectives. The second is the \emph{model gap}: satellite
+cloud removal requires the reconstruction of multi-scale textures,
+cloud boundaries, and spectral details, while small spiking
+classification networks are insufficient for high-fidelity
+reconstruction. The third is the \emph{data-heterogeneity gap}: non-IID
+satellite observations in practical cloud-removal scenarios are driven
+more by source factors such as sensors, cloud thickness, atmospheric
+conditions, and observation regions than by class-label imbalance.
+These gaps indicate that onboard federated cloud removal requires a
+co-design across the task, model, and system levels.
+
+To address these challenges, this paper studies a new problem:
+\emph{decentralized onboard federated optical cloud removal over
+satellite constellations}. To the best of our knowledge, this is the
+first work to formulate optical cloud removal under this setting.
+Different from existing ground-centered cloud-removal methods, this
+work focuses on remote-sensing restoration under onboard communication,
+energy, and computation constraints. Different from existing onboard
+federated learning studies, this work addresses high-fidelity dense
+image restoration rather than relatively lightweight tasks such as
+classification or compression. The goal is not merely to improve
+offline ground-side restoration metrics, but to establish a unified
+design framework that jointly considers cloud-removal quality,
+inference energy, onboard computation, and decentralized training.
+
+To this end, we propose \textbf{\OrbitALIF{}}, an
+\emph{Orbital Attention-enhanced Leaky Integrate-and-Fire} framework
+for onboard optical cloud removal. \OrbitALIF{} exploits the sparse
+event-driven computation of SNNs to reduce inference energy, while
+improving pixel-level restoration capability through attention- and
+receptive-field-enhanced modules and architecture. At the model level,
+\OrbitALIF{} introduces five-level quantized spikes to improve the
+representational capability of conventional binary spikes, and combines
+dual-frequency residual modeling, frequency-spatial attention, adaptive
+gated fusion, and spectro-temporal spike enhancement to recover cloud
+boundaries, thin-cloud textures, and high-frequency ground details. At
+the system level, \OrbitALIF{} constructs a decentralized constellation
+training pipeline, retaining local BN statistics~\cite{ref:fedbn} to
+mitigate source-level feature shift and exchanging shared parameters
+through intra-plane aggregation and inter-plane Gossip
+mixing~\cite{ref:gossip-boyd}. FedBN and Gossip are not proposed here
+as new federated optimization algorithms; rather, they are adopted as
+system-level training strategies adapted to constellation communication
+topology and source-level heterogeneous data.
+
+The main contributions of this work are summarized as follows.
+
+\begin{itemize}
+\item \textbf{We formulate decentralized onboard federated optical
+  cloud removal.} To the best of our knowledge, this work is the first
+  to formulate optical cloud removal as a decentralized onboard
+  federated learning problem over satellite constellations, unifying
+  optical remote-sensing restoration, onboard intelligent processing,
+  and inter-satellite collaborative learning in a single framework.
+
+\item \textbf{We propose \OrbitALIF{} for low-energy onboard cloud
+  removal.} \OrbitALIF{} combines attention-enhanced LIF dynamics with
+  sparse spiking computation. Through five-level quantized spikes,
+  dual-frequency residual modeling, frequency-spatial attention,
+  adaptive gated fusion, and spectro-temporal spike enhancement,
+  \OrbitALIF{} preserves pixel-level restoration capability under
+  low-power computation.
+
+\item \textbf{We design a decentralized constellation training pipeline
+  for source-level heterogeneous data.} To handle distribution
+  differences across satellite observations, \OrbitALIF{} retains local
+  BN statistics to mitigate feature shift and exchanges shared
+  parameters through intra-plane aggregation and inter-plane Gossip
+  mixing, avoiding both large-scale raw-data downlink and dependence on
+  a centralized ground parameter server.
+
+\item \textbf{We validate the quality--energy advantage and cross-task
+  restoration potential of \OrbitALIF{}.} Experiments show that the
+  $2.30$\,M onboard deployment variant improves cloud-removal quality
+  while reducing per-image inference energy by up to $72.3\!\times$.
+  The $14$\,M scaled variant reaches SOTA performance on image
+  deraining and achieves competitive near-SOTA performance on optical
+  cloud removal, indicating that attention-enhanced LIF dynamics have
+  broader potential for low-level vision restoration.
+\end{itemize}
+
+The remainder of this paper is organized as follows.
+Section~\ref{sec:sysmodel} introduces the constellation model, the
+federated learning formulation, and the source-level Dirichlet non-IID
+partition. Section~\ref{sec:framework} presents the \OrbitALIF{}
+architecture and decentralized training pipeline.
+Section~\ref{sec:experiments} reports centralized cloud-removal
+results, component ablations, federated training results, and energy
+analysis. Section~\ref{sec:conclusion} concludes this paper.
+
+% =====================================================================
+% Section II / III / IV / V — TO BE COMPOSED BY THE USER
+% =====================================================================
+% Section II: System Model
+\section{System Model}\label{sec:sysmodel}
+\textit{[Section to be written by the user.]}
+
+% Section III: Framework
+\section{The \OrbitALIF{} Framework}\label{sec:framework}
+\textit{[Section to be written by the user.]}
+
+% Section IV: Experiments
+\section{Experiments}\label{sec:experiments}
+\textit{[Section to be written by the user.]}
+
+% Section V: Conclusion
+\section{Conclusion}\label{sec:conclusion}
+\textit{[Section to be written by the user.]}
+
+% =====================================================================
+% Bibliography
+% =====================================================================
+% IMPORTANT: Each \bibitem is tagged with one of three statuses:
+%   [VERIFIED]    — bibliographic fields are stable across multiple
+%                   independent sources (canonical / well-cited paper).
+%                   Safe to keep as-is.
+%   [USER VERIFY] — the paper exists in the public record but specific
+%                   fields (page numbers, volume, doi, exact title
+%                   capitalisation) should be cross-checked against the
+%                   actual published / arXiv PDF before submission.
+%   [PLACEHOLDER] — bibliographic skeleton only; user MUST replace with
+%                   a real, verified citation.  Do not submit while any
+%                   [PLACEHOLDER] entry remains.
+% =====================================================================
+
+\begin{thebibliography}{99}
+
+% [PLACEHOLDER]
+% Citation context: opening sentence, "real-time applications such as
+% natural disaster monitoring, emergency response, agricultural
+% observation...".  Recommendation: replace with a recent IEEE
+% Geoscience and Remote Sensing Magazine survey on optical remote-
+% sensing applications.  Sample candidates the user may consider
+% (must be cross-checked individually):
+%   - "Deep learning in remote sensing: A comprehensive review and
+%      list of resources", Zhu et al., IEEE GRSM 2017.
+%   - "Deep Learning Methods for Optical Remote Sensing Image
+%      Restoration: A Survey", Liu et al., IEEE GRSM (year varies).
+\bibitem{ref:earthobs1}
+[PLACEHOLDER -- replace with verified survey on remote-sensing
+applications.]
+
+% [PLACEHOLDER]
+% Citation context: same opening sentence, second authority citation.
+% Recommendation: a survey on real-time satellite imagery for disaster
+% / emergency response (e.g., IEEE GRSM or ISPRS Journal).
+\bibitem{ref:earthobs2}
+[PLACEHOLDER -- replace with verified survey on real-time satellite
+imagery for disaster / emergency response.]
+
+% [USER VERIFY]
+% Title and venue match the public CVPRW 2024 (AI4Space workshop)
+% paper "Tackling the Satellite Downlink Bottleneck with Federated
+% Onboard Learning of Image Compression" by Gomez et al.  The CVF
+% open-access page is at openaccess.thecvf.com (CVPRW 2024 AI4Space).
+% USER ACTION: open the CVF PDF and confirm authors / page range /
+% exact title before submission.
+\bibitem{ref:onboardfl-bottleneck}
+P.~Gomez \emph{et~al.},
+``Tackling the satellite downlink bottleneck with federated onboard
+learning of image compression,''
+\emph{Proc.\ IEEE/CVF Conf.\ Comput.\ Vis.\ Pattern Recognit.\
+Workshops (CVPRW)}, 2024.
+
+% [PLACEHOLDER]
+% Citation context: Space-CPN concept and architecture.  Recent
+% Chinese-language and IEEE Network articles discuss this concept.
+% USER ACTION: replace with one or two specific Space-CPN architecture
+% papers (IEEE Network / IEEE Comm.\ Magazine).  Make sure the cited
+% paper actually defines or surveys Space Computing Power Networks.
+\bibitem{ref:spacecpn1}
+[PLACEHOLDER -- replace with verified Space Computing Power Networks
+architecture / survey paper.]
+
+% [USER VERIFY]
+% This is the CUHK-CR / DDFR paper.  An arXiv version is available at
+% arXiv:2401.15105 with title
+%   "Diffusion Enhancement for Cloud Removal in Ultra-Resolution
+%    Remote Sensing Imagery"
+% and the published version is in IEEE TGRS.  USER ACTION: confirm
+% the final IEEE TGRS volume / issue / pages and the canonical author
+% list against the arXiv abstract page or IEEE Xplore record.
+\bibitem{ref:cuhkcr}
+Y.~Sui \emph{et~al.},
+``Diffusion enhancement for cloud removal in ultra-resolution remote
+sensing imagery,''
+\emph{IEEE Trans.\ Geosci.\ Remote Sens.}, 2024.
+% arXiv:2401.15105
+
+% [VERIFIED]
+% Canonical SNN reference establishing spiking neurons as the third
+% generation of neural network models.  Bibliographic fields are
+% stable across decades of citations.
+\bibitem{ref:maass1997}
+W.~Maass,
+``Networks of spiking neurons: The third generation of neural network
+models,''
+\emph{Neural Networks}, vol.~10, no.~9, pp.~1659--1671, 1997.
+
+% [USER VERIFY]
+% Loihi neuromorphic processor.  USER ACTION: confirm exact
+% bibliographic fields (volume / issue / month) of IEEE Micro.
+\bibitem{ref:loihi}
+M.~Davies \emph{et~al.},
+``Loihi: A neuromorphic manycore processor with on-chip learning,''
+\emph{IEEE Micro}, vol.~38, no.~1, pp.~82--99, Jan./Feb.\ 2018.
+
+% [USER VERIFY]
+% ESDNet for SNN-based image deraining; arXiv preprint listed at
+% arXiv:2207.02094.  USER ACTION: confirm whether a peer-reviewed
+% version exists in a specific venue and update accordingly.
+\bibitem{ref:esdnet}
+H.~Song \emph{et~al.},
+``Exploring the potentials of spiking neural networks for image
+deraining,''
+\emph{arXiv preprint arXiv:2207.02094}, 2022.
+
+% [USER VERIFY]
+% FLSNN: decentralized federated SNN over Walker-Star constellation
+% for EuroSAT classification.  arXiv preprint identifier listed in
+% the user's existing draft as arXiv:2501.15995, 2025.  USER ACTION:
+% open the arXiv abstract page, copy the exact title and author list,
+% and confirm the preprint ID.  This is a load-bearing citation for
+% the related-work paragraph; treat it as critical.
+\bibitem{ref:flsnn}
+P.~Yang, T.~Wang, \emph{et~al.},
+``Brain-inspired decentralized satellite learning in space computing
+power networks,''
+\emph{arXiv preprint arXiv:2501.15995}, 2025.
+
+% [VERIFIED]
+% FedAvg.  Canonical federated learning baseline; bibliographic fields
+% are widely consistent.
+\bibitem{ref:fedavg}
+H.~B.~McMahan, E.~Moore, D.~Ramage, S.~Hampson, and B.~A.~y~Arcas,
+``Communication-efficient learning of deep networks from decentralized
+data,''
+\emph{Proc.\ Int.\ Conf.\ Artif.\ Intell.\ Statist.\ (AISTATS)}, 2017.
+
+% [VERIFIED]
+% FedBN.  ICLR 2021.  Title and authorship are widely cross-cited.
+\bibitem{ref:fedbn}
+X.~Li, M.~Jiang, X.~Zhang, M.~Kamp, and Q.~Dou,
+``FedBN: Federated learning on non-IID features via local batch
+normalization,''
+\emph{Proc.\ Int.\ Conf.\ Learn.\ Represent.\ (ICLR)}, 2021.
+
+% [VERIFIED]
+% Boyd et al. on randomized gossip algorithms.  Canonical reference
+% for gossip-style decentralized averaging.
+\bibitem{ref:gossip-boyd}
+S.~Boyd, A.~Ghosh, B.~Prabhakar, and D.~Shah,
+``Randomized gossip algorithms,''
+\emph{IEEE Trans.\ Inf.\ Theory}, vol.~52, no.~6, pp.~2508--2530,
+Jun.\ 2006.
+
+\end{thebibliography}
+
+\end{document}
