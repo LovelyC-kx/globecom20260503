@@ -303,43 +303,72 @@ stress test.
 
 \subsection{Decentralized Training Protocol}\label{sec:sysmodel-procedure}
 
-Training runs for $R\!=\!200$ rounds, with four steps per round.
-(S1)~Each satellite performs $E\!=\!2$ local AdamW steps on
-$\mathcal{D}_{i,k}$.
-(S2)~Intra-plane ring AllReduce averages non-BN parameters:
+The protocol must respect the intra-plane / inter-plane asymmetry
+identified in Section~\ref{sec:sysmodel-setup} and the BN locality
+required by source-level heterogeneity. Training proceeds for
+$R\!=\!200$ rounds, and each round executes four steps in sequence.
+
+\textbf{(S1) Local update.} Each satellite performs $E\!=\!2$
+AdamW steps on its local dataset $\mathcal{D}_{i,k}$, producing
+$x_{i,k}^{(r,E)}$. No exchange occurs in this step.
+
+\textbf{(S2) Intra-plane ring AllReduce.} Same-plane satellites
+share quasi-continuous links, so plane $i$ runs an exact
+ring-AllReduce over its $K$ members and replaces each local copy
+with the plane average,
 \begin{equation}
 x_i^{(r+\frac{1}{2})}
 \;=\;
-\frac{1}{K}
-\sum_{k \in \mathcal{K}_i}
-x_{i,k}^{(r,E)}.
+\frac{1}{K}\sum_{k \in \mathcal{K}_i} x_{i,k}^{(r,E)}.
 \label{eq:intraplane}
 \end{equation}
-(S3)~Single-step inter-plane Gossip over the chain topology:
+After (S2) every satellite within a plane carries identical non-BN
+weights, so the inter-plane stage can treat each plane as a single
+logical node.
+
+\textbf{(S3) Inter-plane Gossip.} The chain topology only allows
+one Gossip step per round between adjacent planes. We use the
+standard Metropolis mixing matrix~\cite{ref:gossip-boyd},
 \begin{equation}
 x_i^{(r+1)}
 \;=\;
-\sum_{j \in \mathcal{N}}
-W_{ij}\, x_j^{(r+\frac{1}{2})},
+\sum_{j \in \mathcal{N}} W_{ij}\, x_j^{(r+\frac{1}{2})},
 \quad i \in \mathcal{N},
 \label{eq:gossip}
 \end{equation}
-where $W\!\in\!\mathbb{R}^{N\times N}$ uses Metropolis weights
-$W_{ij}\!=\!1/(\max(d_i,d_j)\!+\!1)$ for adjacent planes
-($d_i$ being the chain-degree of node $i$) and
-$W_{ii}\!=\!1\!-\!\sum_{j\sim i} W_{ij}$ on the diagonal. For the
-$N\!=\!5$ chain this gives off-diagonals $\tfrac{1}{3}$ and self-weights
+with $W_{ij}\!=\!1/(\max(d_i,d_j)\!+\!1)$ for adjacent planes
+($d_i$ is the chain-degree of node $i$) and
+$W_{ii}\!=\!1\!-\!\sum_{j\sim i} W_{ij}$. For the $N\!=\!5$ chain
+this gives off-diagonals $\tfrac{1}{3}$ and self-weights
 $\{\tfrac{2}{3},\tfrac{1}{3},\tfrac{1}{3},\tfrac{1}{3},\tfrac{2}{3}\}$.
-(S4)~Intra-plane broadcast of $x_i^{(r+1)}$ to all satellites in plane $i$.
+$W$ is doubly stochastic with spectral gap
+$1\!-\!\lambda_2(W)\!\approx\!0.13$, the slow mixing rate inherent
+to chain topologies of length $5$.
 
-Following \textsc{FedBN}~\cite{ref:fedbn}, all BN-tagged
-parameters---affine $(\gamma,\beta)$, running statistics, and TDBN
-parameters---are excluded from both \eqref{eq:intraplane} and
-\eqref{eq:gossip}. Only non-BN convolutional and attention weights
-are exchanged, so each satellite's normalization adapts to its local
-cloud-density distribution. Per-round inter-plane traffic equals
-$4\!\cdot\!d_{\rm shared}\!\cdot\!2\!\cdot\!(N\!-\!1)$ bytes
-(fp32 weights, both directions, $N\!-\!1\!=\!4$ chain edges). The
+\textbf{(S4) Intra-plane broadcast.} Plane $i$ broadcasts
+$x_i^{(r+1)}$ to its $K$ members, restoring the property that each
+plane carries one shared weight set at the start of round $r+1$.
+
+\textbf{FedBN-on-SNN.} Steps (S2) and (S3) only mix \emph{shared}
+parameters. Every BN-tagged tensor stays local~\cite{ref:fedbn}.
+The BN tag covers the affine pair $(\gamma,\beta)$, the running
+mean and variance, and---specific to our spiking
+backbone---the threshold parameters of spikingjelly's
+Threshold-Dependent BN (TDBN). Keeping these local lets each
+satellite's normalisation absorb the cloud-thickness and
+radiometric drift it actually observes, which is the source-level
+heterogeneity introduced in Section~\ref{sec:sysmodel-setup}. Two
+implementation details matter in practice. First, the BN tag is
+matched on parameter-name regex over the model state dictionary,
+covering torch BN, GroupNorm, and TDBN simultaneously. Second,
+spikingjelly modules expose non-tensor entries (e.g., the membrane
+potential $v\!=\!0$ scalar and uninitialised spike caches) inside
+their state dict, and aggregation skips these entries to avoid
+silent dtype errors.
+
+\textbf{Communication cost.} Per-round inter-plane traffic equals
+$4\!\cdot\!d_{\rm shared}\!\cdot\!2\!\cdot\!(N\!-\!1)$ bytes (fp32
+shared weights, both directions, $N\!-\!1\!=\!4$ chain edges). The
 $R\!=\!200$-round cumulative volume is reported in
 Table~\ref{tab:federated}.
 
