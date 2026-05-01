@@ -452,34 +452,33 @@ analysis uses forward hooks on $32$ CR1 test patches.
 \subsection{Centralized Cloud-Removal Performance}\label{sec:exp-centralized}
 
 Table~\ref{tab:centralized} reports centralized results on CUHK-CR1
-and CUHK-CR2. \OrbitALIF{} attains
-$25.374$\,dB\,/\,$0.7728$ PSNR\,/\,SSIM on CR1 and
-$23.197$\,dB\,/\,$0.7449$ on CR2, exceeding the compact PlainUNet
-baseline by $+0.502$\,dB on CR1 and $+0.157$\,dB on CR2 despite
-operating with sparse spike activations and TDBN-quantized
-intermediate features. The smaller margin on CR2 reflects the harder
-restoration ceiling under thick-cloud occlusion, where the encoder
-features themselves carry less recoverable information.
+and CUHK-CR2. \OrbitALIF{} attains $25.374$\,dB on CR1 and
+$23.197$\,dB on CR2, exceeding the compact PlainUNet baseline by
+$+0.502$\,dB on CR1 and $+0.157$\,dB on CR2 despite operating with
+sparse spike activations and TDBN-quantized intermediate features.
+The smaller margin on CR2 reflects the harder restoration ceiling
+under thick-cloud occlusion, where the encoder features themselves
+carry less recoverable information.
 
 \begin{table}[!htbp]
 \centering
 \caption{Centralized cloud-removal performance on CUHK-CR1 and
 CUHK-CR2. Both models are trained for $400$ epochs under identical
-optimization (AdamW, lr\,$10^{-3}$, cosine, batch~$4$). PSNR and SSIM
-are evaluated on $64\!\times\!64$ centre patches of the held-out test
+optimization (AdamW, lr\,$10^{-3}$, cosine, batch~$4$). PSNR is
+evaluated on $64\!\times\!64$ centre patches of the held-out test
 split. Bold indicates the best per dataset.}
 \label{tab:centralized}
-\begin{tabular}{lcccc}
+\begin{tabular}{lcc}
 \toprule
-Method & Params (M) & PSNR (dB) & SSIM & Wall (h) \\
+Method                    & Params (M) & PSNR (dB) \\
 \midrule
-\multicolumn{5}{l}{\emph{CUHK-CR1 (thin clouds)}} \\
-PlainUNet                  & $1.31$ & $24.872$           & $0.7683$           & $0.60$ \\
-\OrbitALIF{} (ours)        & $2.30$ & $\mathbf{25.374}$  & $\mathbf{0.7728}$  & $2.30$ \\
+\multicolumn{3}{l}{\emph{CUHK-CR1 (thin clouds)}} \\
+PlainUNet                  & $1.31$ & $24.872$           \\
+\OrbitALIF{} (ours)        & $2.30$ & $\mathbf{25.374}$  \\
 \midrule
-\multicolumn{5}{l}{\emph{CUHK-CR2 (thick clouds)}} \\
-PlainUNet                  & $1.31$ & $23.040$           & $0.7400$           & $0.60$ \\
-\OrbitALIF{} (ours)        & $2.30$ & $\mathbf{23.197}$  & $\mathbf{0.7449}$  & $2.34$ \\
+\multicolumn{3}{l}{\emph{CUHK-CR2 (thick clouds)}} \\
+PlainUNet                  & $1.31$ & $23.040$           \\
+\OrbitALIF{} (ours)        & $2.30$ & $\mathbf{23.197}$  \\
 \bottomrule
 \end{tabular}
 \end{table}
