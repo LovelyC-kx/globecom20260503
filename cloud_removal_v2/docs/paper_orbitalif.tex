@@ -150,12 +150,15 @@ Contributions:
   attention (\SHAM{}), adaptive gated fusion (\AGFM{}), and
   spectro-temporal hyper-blocks (\SSHB{}) deliver high-fidelity spiking
   cloud removal under sparse event-driven computation.
-\item \textbf{System results.} The $2.30$\,M onboard variant improves
-  centralized cloud removal by $+0.50$\,dB and reduces inference energy
-  up to $72.3\!\times$ over a compact ANN baseline. Under
-  decentralized \textsc{FedBN}\,+\,Gossip the \OrbitALIF{}-ANN
-  variant exceeds PlainUNet by $+0.667$\,dB, while
-  \OrbitALIF{}-SNN remains within $0.13$\,dB and is robust to
+\item \textbf{System results.} \OrbitALIF{} ($2.30$\,M parameters)
+  is $1.6\!\times$ to $6.8\!\times$ smaller than the end-to-end
+  cloud-removal baselines reported on this benchmark (MemoryNet
+  $3.64$\,M, MSDA-CR $3.91$\,M, CVAE $15.56$\,M~\cite{ref:cuhkcr})
+  while attaining centralized PSNR on CUHK-CR1 within $0.06$\,dB of
+  MSDA-CR. Inference energy is reduced up to $72.3\!\times$ over a
+  matched ANN baseline. Under decentralized \textsc{FedBN}\,+\,Gossip,
+  \OrbitALIF{}-ANN exceeds PlainUNet by $+0.667$\,dB while
+  \OrbitALIF{}-SNN stays within $0.13$\,dB and is robust to
   $10\!\times$ stronger source heterogeneity.
 \end{itemize}
 
@@ -194,11 +197,14 @@ Section~\ref{sec:framework-loss}.
 
 To model satellite data heterogeneity, we use a source-level
 Dirichlet non-IID partition with $S\!=\!2$ source domains (CUHK-CR1:
-thin cloud; CUHK-CR2: thick cloud). Each satellite draws a source
-mixing vector $\mathbf{p}_{i,k}\!\sim\!\Dir(\alpha\mathbf{1}_S)$
-and samples tiles accordingly. Under $\alpha\!=\!0.1$, 30 of 50
-satellites hold only five tiles each, while three satellites hold
-$\{117,118,118\}$ samples.
+thin cloud; CUHK-CR2: thick cloud). Following~\cite{ref:hsu2019},
+for each source $s\!\in\!\{1,\ldots,S\}$ we draw a partition vector
+$\mathbf{q}^{(s)}\!\sim\!\Dir(\alpha\,\mathbf{1}_{NK})$ over the
+$NK$ satellites; satellite $s_{i,k}$ then receives fraction
+$q^{(s)}_{i,k}$ of the source-$s$ tiles, with a minimum of five
+tiles per satellite enforced by post-hoc rebalancing. Under
+$\alpha\!=\!0.1$, 30 of 50 satellites hold only the five-tile floor,
+while three satellites hold $\{117,118,118\}$ samples.
 
 \subsection{Decentralized Training Protocol}\label{sec:sysmodel-procedure}
 
@@ -317,21 +323,26 @@ learnable scales and a nonlinear interaction:
 \begin{equation}
 \mathbf{Z}_1
 =
-\mathrm{BN}(\mathrm{Conv}(
+\mathrm{TDBN}(\mathrm{Conv}(
 \alpha_h\mathbf{X}_h + \alpha_l\mathbf{X}_l
 + \mathbf{X}\odot\mathbf{X}_h)).
 \label{eq:dfrb-g1}
 \end{equation}
 Group~2 applies a \texttt{PixelShuffleLIFBlock} to extract spatial
 high-frequency features $\mathbf{Z}_{2h}$ from $\mathbf{Z}_1$ and
-fuses them via a learnable cross-scale gate $\sigma(g)$ initialized
-to zero. After shortcut addition and TCS-Att, \SHAM{} is applied:
+fuses them via a learnable scalar gate $g$ (initialized to zero so
+that $\sigma(g){=}0.5$ at start and the cross-group path
+$\sigma(g)\,\mathbf{X}_h\!\odot\!\mathbf{Z}_{2h}$ opens gradually).
+A shortcut $\mathrm{Conv}(\mathbf{X})$ is added to $\mathbf{Z}_2$
+before TCS-Att, after which a second residual $\mathbf{X}$ is added
+and \SHAM{} is applied:
 \begin{equation}
 \mathrm{DFRB}(\mathbf{X})
 =
-\SHAM{}\!\left(
-\mathrm{TCS\text{-}Att}(\mathbf{Z}_2 + \mathrm{Conv}(\mathbf{X}))
-\right).
+\SHAM{}\!\Bigl(
+\mathrm{TCS\text{-}Att}\!\bigl(\mathbf{Z}_2 + \mathrm{Conv}(\mathbf{X})\bigr)
++ \mathbf{X}
+\Bigr).
 \label{eq:dfrb}
 \end{equation}
 Ablation B2 shows removing the dual-group structure drops PSNR by
@@ -342,24 +353,29 @@ $-0.516$\,dB (Section~\ref{sec:exp-ablation}).
 
 \SHAM{} recalibrates spike features along two orthogonal axes.
 Given $\mathbf{X}\in\mathbb{R}^{T\times C\times H\times W}$, the
-temporal-amplitude attention (TAA) branch modulates each time step
-via sigmoid-gated FC mixing over spatial-pooled descriptors:
-$\mathbf{X}' = \mathbf{X} + \mathbf{X}\odot
-\sigma(\mathrm{FC}_{T\to T}(\overline{\mathbf{X}}_\mathrm{sp}))$.
-The frequency-spatial attention (SFA) branch applies
-$\mathrm{rFFT2}$ to the temporal mean of $\mathbf{X}'$, weights
-spectral components via a \texttt{FreqMLP}, reconstructs via iFFT,
-and generates a spatial mask $\mathbf{w}_S$ with a $7\!\times\!7$
-convolution. The full output is a learnable gated residual ($\eta$
-initialized to zero):
+temporal-amplitude attention (TAA) and frequency-spatial attention
+(SFA) operators are
+\begin{align}
+\mathrm{TAA}(\mathbf{X}) &=\mathbf{X}+\mathbf{X}\odot
+\sigma\!\bigl(\mathrm{FC}_{T\to T}(\overline{\mathbf{X}}_\mathrm{sp})\bigr),\\
+\mathrm{SFA}(\mathbf{Z}) &=\mathbf{Z}+\mathbf{Z}\odot\mathbf{w}_S,
+\end{align}
+where $\overline{\mathbf{X}}_\mathrm{sp}$ is a spatial pooled
+descriptor and $\mathbf{w}_S\!\in\![0,1]^{1\times H\times W}$ is the
+spatial mask produced by applying $\mathrm{rFFT2}$ to the temporal
+mean of $\mathbf{Z}$, reweighting the magnitude via a
+\texttt{FreqMLP}, reconstructing via iFFT (phase preserved), and
+projecting through a $7\!\times\!7$ convolution with a sigmoid head.
+Both branches carry their own additive residual; the outer module
+gate combines them as
 \begin{equation}
 \mathrm{SHAM}(\mathbf{X})
 =
-\mathbf{X}
-+\sigma(\eta)\!\left(\mathbf{X}'\odot\mathbf{w}_S-\mathbf{X}\right).
+\mathbf{X}+\sigma(\eta)\bigl(\mathrm{SFA}(\mathrm{TAA}(\mathbf{X}))-\mathbf{X}\bigr),
 \label{eq:sham}
 \end{equation}
-\SHAM{} embeds at the tail of each \DFRB{} (after TCS-Att);
+with parameter $\eta$ initialized to zero ($\sigma(\eta){=}0.5$ at
+start). \SHAM{} embeds at the tail of each \DFRB{} (after TCS-Att);
 its removal drops PSNR by $-0.597$\,dB (Ablation B1).
 
 \subsection{\AGFM{}: Adaptive Gated Fusion}
@@ -368,12 +384,15 @@ its removal drops PSNR by $-0.597$\,dB (Ablation B1).
 In thick-cloud regions shallow features are corrupted; in thin-cloud
 regions they carry reliable textures. \AGFM{} generates a spatially
 varying gate from the concatenated decoder feature $\mathbf{d}$ and
-encoder skip $\mathbf{e}$, and fuses them as
+encoder skip $\mathbf{e}$, fuses them, and passes the result through
+a 5QS-LIF activation and TDBN:
 \begin{equation}
 \mathbf{f}
 =
+\mathrm{TDBN}\!\left(\mathrm{LIF}\!\left(
 \boldsymbol{\gamma}\odot\mathbf{d}
-+(1-\boldsymbol{\gamma})\odot\mathbf{e},\quad
++(1-\boldsymbol{\gamma})\odot\mathbf{e}
+\right)\right),\quad
 \boldsymbol{\gamma}=\sigma\!\left(
 \mathrm{Conv}_{1\times1}([\mathbf{d};\mathbf{e}]_C)\right).
 \label{eq:agfm}
@@ -386,20 +405,27 @@ the deepest level uses a direct encoder--decoder connection.
 
 \SSHB{} enhances full-resolution features through temporal expansion,
 spike-convolutional refinement, and FFT-domain spatial mixing.
-Starting from $\mathbf{X}$, \DFRB{} extracts dual-frequency responses;
-a $2\!\times$ PixelUnshuffle (PU$_2$) expands the time horizon from
-$T$ to $T\!\cdot\!r^2\!=\!16$ steps at half resolution; a LIF node
-and temporal-channel attention module (TCAM) recalibrate the expanded
-representation; a 3D convolution compresses back to $T$ steps; two
-spike-convolutional Refine blocks follow; the result is upsampled and
-skip-added, then passed through TCS-Att and an FFT-domain FreqMLP
-(FSE), yielding global receptive field in $O(N\log N)$:
+Let $\mathrm{PU}_2$ denote the $2\!\times$ PixelUnshuffle that
+expands the time horizon from $T$ to $T r^2\!=\!16$ at half
+resolution, $\mathrm{Cmp}$ the Conv3d $T r^2\!\to\!T$ temporal
+compression, $\mathrm{Up}_2$ the bilinear $\times 2$ spatial
+upsample, and $\mathrm{Refine}$ two stacked
+$\bigl[\mathrm{LIF}{\to}\mathrm{Conv}{\to}\mathrm{TDBN}{\to}\mathrm{TCS\text{-}Att}\bigr]$
+blocks. Starting from $\mathbf{X}$, \DFRB{} extracts dual-frequency
+responses; PU$_2$ + LIF gate the expanded representation; TCAM
+recalibrates inter-step importance; Cmp compresses back to $T$
+steps; Refine processes the reduced-resolution features; Up$_2$
+restores the spatial size and the initial \DFRB{} output is
+skip-added; TCS-Att and the FFT-domain FreqMLP (FSE) close the
+block, providing global receptive field in $O(N\log N)$:
 \begin{equation}
+\begin{aligned}
 \mathrm{SSHB}(\mathbf{X})
-=
-\mathrm{FSE}\circ\mathrm{TCS\text{-}Att}\circ
-(\cdot{+}\mathrm{DFRB}(\mathbf{X}))
-\circ\mathrm{Refine}\circ\mathrm{TCAM}\circ\mathrm{PU}_{2}\circ\mathrm{DFRB}(\mathbf{X}).
+=\;&\mathrm{FSE}\circ\mathrm{TCS\text{-}Att}\circ
+(\cdot{+}\mathrm{DFRB}(\mathbf{X}))\\
+&\circ\mathrm{Up}_{2}\circ\mathrm{Refine}\circ\mathrm{Cmp}\\
+&\circ\mathrm{TCAM}\circ\mathrm{LIF}\circ\mathrm{PU}_{2}\circ\mathrm{DFRB}(\mathbf{X}).
+\end{aligned}
 \label{eq:sshb}
 \end{equation}
 
@@ -874,6 +900,16 @@ S.~Boyd, A.~Ghosh, B.~Prabhakar, and D.~Shah,
 ``Randomized gossip algorithms,''
 \emph{IEEE Trans.\ Inf.\ Theory}, vol.~52, no.~6, pp.~2508--2530,
 Jun.\ 2006.
+
+% [VERIFIED] Hsu, Qi, Brown 2019.  Canonical reference for the
+% per-label Dirichlet partitioner used in nearly all subsequent
+% federated non-IID studies; here we apply it per-source rather than
+% per-label.  arXiv:1909.06335.
+\bibitem{ref:hsu2019}
+T.-M.~H.~Hsu, H.~Qi, and M.~Brown,
+``Measuring the effects of non-identical data distribution for
+federated visual classification,''
+\emph{arXiv preprint arXiv:1909.06335}, 2019.
 
 \end{thebibliography}
 
