@@ -151,10 +151,12 @@ Contributions:
   spectro-temporal hyper-blocks (\SSHB{}) deliver high-fidelity spiking
   cloud removal under sparse event-driven computation.
 \item \textbf{System results.} The $2.30$\,M onboard variant improves
-  cloud removal by $+0.50$\,dB and reduces inference energy by up to
-  $72.3\!\times$ over a compact ANN baseline. The \OrbitALIF{}-ANN
-  backbone outperforms the PlainUNet baseline under the same
-  decentralized FedBN\,+\,Gossip training protocol.
+  centralized cloud removal by $+0.50$\,dB and reduces inference energy
+  up to $72.3\!\times$ over a compact ANN baseline. Under
+  decentralized \textsc{FedBN}\,+\,Gossip the \OrbitALIF{}-ANN
+  variant exceeds PlainUNet by $+0.667$\,dB, while
+  \OrbitALIF{}-SNN remains within $0.13$\,dB and is robust to
+  $10\!\times$ stronger source heterogeneity.
 \end{itemize}
 
 The remainder of this paper is organized as follows.
@@ -576,17 +578,17 @@ backbone alone.
 \caption{Decentralized federated cloud-removal on CUHK-CR1\,$\cup$\,CR2
 under \textsc{FedBN}\,+\,Gossip, $R\!=\!200$ rounds, source-level
 Dirichlet $\alpha\!=\!0.1$. Communication volume is the cumulative
-inter-plane traffic over shared (non-BN) parameters. The
-\OrbitALIF{}-ANN row is pending and will be filled in the extended
-version.}
+inter-plane traffic over shared (non-BN) parameters; both
+\OrbitALIF{} variants share identical non-BN parameter counts and
+therefore identical Comm.}
 \label{tab:federated}
 \begin{tabular}{lcccc}
 \toprule
-Backbone (FedBN $\times$ Gossip)    & PSNR (dB) & SSIM & Comm (MB) & Wall (h) \\
+Backbone (FedBN $\times$ Gossip)    & PSNR (dB)         & SSIM              & Comm (MB) & Wall (h) \\
 \midrule
-PlainUNet (baseline)                 & $22.012$   & $0.6819$  & $8420$     & $4.37$  \\
-\OrbitALIF{}-ANN                     & [\,XX.XX]  & [\,0.XXXX]& [\,XX]     & [\,X.XX] \\
-\OrbitALIF{}-SNN (ours)              & $21.886$   & $0.6725$  & $14777$    & $17.73$ \\
+PlainUNet (baseline)                 & $22.012$          & $0.6819$          & $8420$     & $4.37$  \\
+\OrbitALIF{}-ANN                     & $\mathbf{22.679}$ & $\mathbf{0.6966}$ & $14777$    & $11.14$ \\
+\OrbitALIF{}-SNN (ours)              & $21.886$          & $0.6725$          & $14777$    & $17.73$ \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -600,23 +602,34 @@ PlainUNet (baseline)                 & $22.012$   & $0.6819$  & $8420$     & $4.
   \label{fig:federated}
 \end{figure}
 
-\textbf{Federated results.}\;\;PlainUNet reaches $22.012$\,dB at
-round 200 with $8.42$\,GB inter-plane traffic in $4.37$\,h, defining
-the federated PSNR floor. \OrbitALIF{}-SNN attains
-$21.886$\,dB\,/\,$0.6725$ with $14.78$\,GB traffic in $17.73$\,h:
-within $0.13$\,dB of the plain ANN baseline despite operating with
-sparse \FQS{}-LIF activations and TDBN-quantized intermediates. The
-$2.86$\,dB centralized-vs-federated gap on PlainUNet quantifies the
-cost of the $\alpha\!=\!0.1$ partition---$30/50$ satellites hold only
-the floor of five tiles, so single satellites cannot reconstruct the
-full encoder, and $R\!=\!200$ Gossip rounds only partially compensate.
+\textbf{Architecture transfers to the federated setting.}\;\;Under
+identical \textsc{FedBN}\,+\,Gossip, $R\!=\!200$, $\alpha\!=\!0.1$,
+\OrbitALIF{}-ANN attains $22.679$\,dB\,/\,$0.6966$, exceeding the
+PlainUNet floor of $22.012$\,dB by $+0.667$\,dB
+($+0.0147$ SSIM)---a margin even larger than the $+0.502$\,dB CR1
+margin in the centralized regime. The \OrbitALIF{} architecture
+therefore retains its quality advantage when training is fully
+decentralized.
 
-\textbf{Heterogeneity sensitivity.}\;\;Increasing source-level
-heterogeneity from $\alpha\!=\!0.1$ to $\alpha\!=\!0.01$ degrades
-\OrbitALIF{}-SNN by only $-0.126$\,dB ($21.886\!\to\!21.760$\,dB,
+\textbf{Spiking trade-off.}\;\;Replacing \FQS{}-LIF with ReLU\,+\,BN
+costs \OrbitALIF{}-SNN $0.793$\,dB versus the ANN variant
+($21.886$ vs $22.679$); SSIM $0.6725$ vs $0.6966$. The SNN run lands
+within $0.13$\,dB of the plain ANN PlainUNet baseline despite
+sparse spike activations and TDBN-quantized intermediates, and
+recoups its quality loss in inference energy
+(Section~\ref{sec:exp-energy}: $1.21\!\times$ to $72.3\!\times$
+reduction over the ANN baseline).
+
+\textbf{Heterogeneity sensitivity.}\;\;Tightening source heterogeneity
+from $\alpha\!=\!0.1$ to $\alpha\!=\!0.01$ degrades \OrbitALIF{}-SNN
+by only $-0.126$\,dB ($21.886\!\to\!21.760$,
 $0.6725\!\to\!0.6691$ SSIM), confirming that \textsc{FedBN}-local
 normalization absorbs most of the additional source skew without
-re-tuning the protocol.
+re-tuning the protocol. The remaining $2.86$\,dB centralized-vs-federated
+gap on PlainUNet (CR1, $24.872\!\to\!22.012$) reflects the difficulty
+of the $\alpha\!=\!0.1$ partition itself: $30/50$ satellites hold
+only five tiles each, so single satellites cannot reconstruct the
+full encoder representation under $R\!=\!200$ Gossip rounds.
 
 \subsection{Energy Analysis}\label{sec:exp-energy}
 
@@ -717,14 +730,16 @@ baseline by $+0.50$\,dB on CR1 and $+0.16$\,dB on CR2. Per-image
 inference energy on a $64\!\times\!64$ patch is estimated as
 $1.21\!\times$ to $72.3\!\times$ lower than the ANN baseline of
 $20.75$\,mJ under standard literature pJ-per-operation constants.
-Component ablations show that the building blocks form a co-designed
+Component ablations show the building blocks form a co-designed
 whole: removing \SHAM{} or the dual-group \DFRB{} drops PSNR
 \emph{below} the plain ANN baseline, while removing \FQS{} (binary
 spikes) keeps performance above PlainUNet. Under the
 \textsc{FedBN}\,+\,Gossip protocol on the $5\!\times\!10$ Walker-Star
 constellation with source-level Dirichlet $\alpha\!=\!0.1$,
-\OrbitALIF{}-SNN reaches $21.886$\,dB---within $0.13$\,dB of the
-plain ANN federated baseline---and degrades by only $-0.126$\,dB
+\OrbitALIF{}-ANN reaches $22.679$\,dB ($+0.667$\,dB over PlainUNet),
+showing the architectural advantage transfers to the decentralized
+setting; \OrbitALIF{}-SNN reaches $21.886$\,dB, within $0.13$\,dB of
+the plain ANN federated baseline and degrading by only $-0.126$\,dB
 under $10\!\times$ stronger heterogeneity ($\alpha\!=\!0.01$).
 
 Future directions include: (i) closing the federated-vs-centralized
