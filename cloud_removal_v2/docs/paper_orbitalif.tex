@@ -502,11 +502,12 @@ pixel regression of cloud removal, where each output location
 needs a graded amplitude. Existing SNN restoration work such as
 ESDNet~\cite{ref:esdnet} accepts the binary output and compensates
 with deeper or wider networks, which erodes the energy advantage
-the sparsity was meant to deliver. ANN-to-SNN conversion preserves
-amplitude but loses strict event-driven sparsity. We need a neuron
-whose output is sparse enough that synaptic operations can be
-skipped on zero-valued operands, yet expressive enough that one or
-two non-zero outputs already carry an amplitude.
+the sparsity was meant to deliver. ANN-to-SNN
+conversion~\cite{ref:rueckauer2017} preserves amplitude but loses
+strict event-driven sparsity. We need a neuron whose output is
+sparse enough that synaptic operations can be skipped on
+zero-valued operands, yet expressive enough that one or two
+non-zero outputs already carry an amplitude.
 
 The five-level quantised spike (5QS) clamps the membrane potential
 $u_t$ of a soft-reset LIF neuron to $[0,4]$, rounds, and normalises
@@ -524,9 +525,8 @@ the four non-zero levels carry two bits per step instead of one.
 Training uses the standard straight-through surrogate $\partial
 o_t/\partial u_t \approx \tfrac{1}{4}\cdot\mathbb{1}\{0\!\le\!u_t\!\le\!4\}$.
 This neuron is the SNN-sparsity foundation that all three
-architectural principles operate within, and is the only
-quantitative knob that distinguishes \OrbitALIF{} from a
-conventional ANN at fixed dataflow.
+architectural principles operate within, and is the activation-level
+expression of the energy claim made in Section~\ref{sec:intro}.
 
 \subsection{Block Scale: Multi-Domain Decomposition}
 \label{sec:framework-block}
@@ -566,9 +566,10 @@ so that each group first matures in isolation. The block closes
 with a shortcut $\mathrm{Conv}(\mathbf{X})$, an additive global
 residual, and a \SHAM{} tail.
 
-\textbf{Spectral-Spatial Hybrid Attention (\SHAM{}).} \SHAM{}
-re-weights spike features along the two axes that \DFRB{} does not
-touch: the time axis and the Fourier amplitude spectrum. A temporal
+\textbf{Spectral-Spatial Hybrid Attention (\SHAM{}).} Following the
+FSTA-SNN attention design~\cite{ref:fstasnn2025}, \SHAM{} re-weights
+spike features along the two axes that \DFRB{} does not touch: the
+time axis and the Fourier amplitude spectrum. A temporal
 amplitude attention (TAA) reweights the $T$ spike steps with a
 sigmoid gate. A spatial frequency attention (SFA) takes the 2D real
 FFT of the temporal mean, modulates the magnitude with a
@@ -611,9 +612,12 @@ routes the result through a 5QS-LIF activation and TDBN,
 with $\boldsymbol{\gamma}\!=\!\sigma\bigl(\mathrm{Conv}_{1\times 1}([\mathbf{d};\mathbf{e}]_C)\bigr)$.
 The gate is per-pixel and per-channel, so the network can trust the
 decoder feature in heavily corrupted regions and the encoder skip
-elsewhere. \AGFM{} is inserted at the first and second multi-scale
-levels, while the deepest level uses a direct encoder--decoder
-connection.
+elsewhere. The pre-sigmoid logits of $\boldsymbol{\gamma}$ are
+initialised at zero, so $\boldsymbol{\gamma}$ starts at $0.5$ (a
+balanced fusion of the two paths) and progressively differentiates
+as training proceeds, which instantiates P3. \AGFM{} is inserted at
+the first and second multi-scale levels, while the deepest level
+uses a direct encoder--decoder connection.
 
 \textbf{Spectro-Temporal Spike Hyper-Block (\SSHB{}).} \SSHB{} is
 the top-level block. It first applies \DFRB{} for local
@@ -624,9 +628,12 @@ temporal-channel attention (TCAM) over the expanded steps,
 compresses back to $T$ steps with a Conv3D, refines with two
 stacked $[\mathrm{LIF}\!\to\!\mathrm{Conv}\!\to\!\mathrm{TDBN}\!\to\!\mathrm{TCS\text{-}Att}]$
 units, upsamples by $2\!\times$, and skip-adds the initial \DFRB{}
-output. A FreqMLP (FSE) closes the block to provide a global
-receptive field at $O(N\log N)$ rather than the $O(N^2)$ cost of a
-direct non-local block,
+output. A FreqMLP (FSE), adapted from the frequency-domain MLP of
+DarkIR~\cite{ref:darkir2024}, closes the block. Its magnitude
+scale $\gamma_F$ is initialised at zero so that the FFT branch
+satisfies P2 at training start, and it provides a global receptive
+field at $O(N\log N)$ rather than the $O(N^2)$ cost of a direct
+non-local block,
 \begin{equation}
 \begin{aligned}
 \mathrm{SSHB}(\mathbf{X})
@@ -1180,6 +1187,39 @@ M.~Horowitz,
 ``Computing's energy problem (and what we can do about it),''
 \emph{IEEE Int.\ Solid-State Circuits Conf.\ (ISSCC) Dig.\ Tech.\
 Papers}, pp.~10--14, Feb.\ 2014.
+
+% [VERIFIED] Rueckauer et al. 2017, Frontiers in Neuroscience.
+% Canonical reference for ANN-to-SNN conversion that preserves
+% real-valued amplitude through firing-rate coding at the cost of
+% strict event-driven sparsity.
+\bibitem{ref:rueckauer2017}
+B.~Rueckauer, I.-A.~Lungu, Y.~Hu, M.~Pfeiffer, and S.-C.~Liu,
+``Conversion of continuous-valued deep networks to efficient
+event-driven networks for image classification,''
+\emph{Frontiers Neurosci.}, vol.~11, p.~682, Dec.\ 2017.
+
+% [USER VERIFY] FSTA-SNN: Frequency-based Spatial-Temporal Attention
+% module for SNNs.  arXiv:2501.14744, AAAI 2025.  Directly inspires
+% the SHAM design (TemporalAmplitudeAttention + DCTSpatialAttention)
+% used in this work.  USER ACTION: open the AAAI 2025 proceedings (or
+% arXiv abstract) and confirm the canonical author list, exact title,
+% and final venue formatting before submission.
+\bibitem{ref:fstasnn2025}
+[Authors],
+``FSTA-SNN: Frequency-based spatial-temporal attention for spiking
+neural networks,''
+\emph{Proc.\ AAAI Conf.\ Artif.\ Intell.}, 2025.
+
+% [USER VERIFY] DarkIR: low-light image restoration with a
+% frequency-domain MLP block.  arXiv:2412.13443, CVPR 2025.  The
+% FreMLP / FSE block in our SSHB is adapted from this paper.
+% USER ACTION: confirm the canonical author list, exact title, and
+% final CVPR 2025 page numbers before submission.
+\bibitem{ref:darkir2024}
+[Authors],
+``DarkIR: Robust low-light image restoration,''
+\emph{Proc.\ IEEE/CVF Conf.\ Comput.\ Vis.\ Pattern Recognit.\
+(CVPR)}, 2025.
 
 \end{thebibliography}
 
