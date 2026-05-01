@@ -47,11 +47,17 @@ Usage
         --backbone plain_ann --num_epoch 400 --run_name C2_plain_cr1
 
 Outputs (under args.output_dir):
-    centralized_<run_name>.npz       per-epoch arrays
-    centralized_<run_name>_best.pt   best-PSNR ckpt
-    centralized_<run_name>_final.pt  last-epoch ckpt
+    centralized_<run_name>.npz        per-epoch arrays
+    centralized_<run_name>_best.pt    best-PSNR ckpt
+    centralized_<run_name>_final.pt   last-epoch ckpt
+    centralized_<run_name>_resume.pt  full state (model+optim+rng+history) for resume
     centralized_<run_name>_summary.json  config + final numbers
-    tb/<run_name>/                   tensorboard events (if available)
+    tb/<run_name>/                    tensorboard events (if available)
+
+Resume:
+    --resume auto       look for ./<output_dir>/centralized_<run_name>_resume.pt
+    --resume /abs/path  load a specific resume checkpoint
+    --ckpt_every N      write the resume ckpt every N epochs (default 1)
 """
 
 from __future__ import annotations
@@ -131,6 +137,12 @@ def _parse_args(argv=None) -> argparse.Namespace:
     # Evaluation
     p.add_argument("--eval_every", type=int, default=5)
     p.add_argument("--eval_patch_size", type=int, default=64)
+    # Checkpoint / resume
+    p.add_argument("--resume", type=str, default="",
+                   help="Path to a *_resume.pt checkpoint, or 'auto' to look for "
+                        "<output_dir>/centralized_<run_name>_resume.pt.  Empty = train from scratch.")
+    p.add_argument("--ckpt_every", type=int, default=1,
+                   help="Save the resume checkpoint every N epochs (default 1 = every epoch).")
     return p.parse_args(argv)
 
 
@@ -491,10 +503,50 @@ def main(argv=None) -> None:
     best_epoch = -1
     best_path = os.path.join(args.output_dir, f"centralized_{args.run_name}_best.pt")
     final_path = os.path.join(args.output_dir, f"centralized_{args.run_name}_final.pt")
+    resume_path = os.path.join(args.output_dir, f"centralized_{args.run_name}_resume.pt")
     npz_path = os.path.join(args.output_dir, f"centralized_{args.run_name}.npz")
     summary_path = os.path.join(args.output_dir, f"centralized_{args.run_name}_summary.json")
 
-    for ep in range(1, args.num_epoch + 1):
+    # Resume from a previous checkpoint if requested.
+    start_epoch = 1
+    if args.resume:
+        cand = resume_path if args.resume == "auto" else args.resume
+        if os.path.isfile(cand):
+            ck = torch.load(cand, map_location=device)
+            # Warn (don't hard-fail) on architectural mismatch — caller's responsibility.
+            prev_cfg = ck.get("config", {})
+            for key in ("backbone", "ablation", "vlif_dim", "en_blocks", "de_blocks", "T"):
+                if key in prev_cfg and prev_cfg[key] != getattr(args, key, None):
+                    _log(f"WARNING: resume {key}={prev_cfg[key]} != current {getattr(args, key, None)}")
+            model.load_state_dict(ck["state_dict"])
+            optimizer.load_state_dict(ck["optimizer"])
+            history = ck["history"]
+            best_psnr = ck.get("best_psnr", best_psnr)
+            best_epoch = ck.get("best_epoch", best_epoch)
+            start_epoch = int(ck["epoch"]) + 1
+            rng = ck.get("rng", {})
+            if "torch" in rng:
+                torch.set_rng_state(rng["torch"])
+            if "cuda" in rng and torch.cuda.is_available():
+                try:
+                    torch.cuda.set_rng_state_all(rng["cuda"])
+                except Exception as e:
+                    _log(f"cuda RNG restore skipped ({e})")
+            if "numpy" in rng:
+                np.random.set_state(rng["numpy"])
+            if "python" in rng:
+                random.setstate(rng["python"])
+            _log(f"resumed from {cand}: start_epoch={start_epoch}, "
+                 f"best_psnr={best_psnr:.3f}@ep{best_epoch}")
+        elif args.resume != "auto":
+            raise FileNotFoundError(f"--resume {cand} not found")
+        else:
+            _log(f"--resume auto: no checkpoint at {cand}, starting from scratch")
+
+    if start_epoch > args.num_epoch:
+        _log(f"resume epoch {start_epoch} > num_epoch {args.num_epoch}; nothing to do")
+
+    for ep in range(start_epoch, args.num_epoch + 1):
         t0 = time.time()
         lr = _cosine_lr(ep - 1, args.num_epoch, args.warmup_epochs, args.lr, args.min_lr)
         for pg in optimizer.param_groups:
@@ -560,6 +612,33 @@ def main(argv=None) -> None:
                 eval_ssim=np.array(history["eval_ssim"]),
                 wall_seconds=np.array(history["wall_seconds"]),
             )
+
+        # Resume checkpoint: full state for ctrl-C-safe continuation.
+        if ep % max(args.ckpt_every, 1) == 0 or ep == args.num_epoch:
+            rng_state = {
+                "torch": torch.get_rng_state(),
+                "numpy": np.random.get_state(),
+                "python": random.getstate(),
+            }
+            if torch.cuda.is_available():
+                try:
+                    rng_state["cuda"] = torch.cuda.get_rng_state_all()
+                except Exception:
+                    pass
+            tmp_path = resume_path + ".tmp"
+            torch.save({
+                "epoch": ep,
+                "state_dict": {k: v.detach().cpu()
+                               for k, v in model.state_dict().items()
+                               if isinstance(v, torch.Tensor)},
+                "optimizer": optimizer.state_dict(),
+                "history": history,
+                "best_psnr": best_psnr,
+                "best_epoch": best_epoch,
+                "rng": rng_state,
+                "config": vars(args),
+            }, tmp_path)
+            os.replace(tmp_path, resume_path)
 
     # Final ckpt (latest weights)
     torch.save({
