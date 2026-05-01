@@ -558,7 +558,7 @@ def _panel_module_5qs(ax, x0, y0, w, h):
     ax.add_patch(FancyBboxPatch((x0,y0), w, h,
         boxstyle="round,pad=0,rounding_size=0.08",
         facecolor=C_LIGHT, edgecolor="#D8D8D8", linewidth=0.5, zorder=0))
-    ax.text(x0+0.10, y0+h-0.14, "(d) 5QS",
+    ax.text(x0+0.10, y0+h-0.14, "(b) 5QS",
             ha="left", va="center", fontsize=7.0, fontweight="bold", color="black")
     ax.text(x0+w-0.08, y0+h-0.14, "(5-level Quantized Spike)",
             ha="right", va="center", fontsize=4.8, color=C_GRAY, fontstyle="italic")
@@ -623,7 +623,7 @@ def _panel_module_sham(ax, x0, y0, w, h):
     ax.add_patch(FancyBboxPatch((x0,y0), w, h,
         boxstyle="round,pad=0,rounding_size=0.08",
         facecolor=C_LIGHT, edgecolor="#D8D8D8", linewidth=0.5, zorder=0))
-    ax.text(x0+0.10, y0+h-0.14, "(e) SHAM",
+    ax.text(x0+0.10, y0+h-0.14, "(c) SHAM",
             ha="left", va="center", fontsize=7.0, fontweight="bold", color="black")
     ax.text(x0+w-0.08, y0+h-0.14, "(Spectral-Hybrid Attention)",
             ha="right", va="center", fontsize=4.8, color=C_GRAY, fontstyle="italic")
@@ -658,8 +658,13 @@ def _panel_module_sham(ax, x0, y0, w, h):
         tensor_3d(ax, cx0+t*dx, y_t_out, 0.10, 0.10, 0.05, wc, zorder=2)
     ax.annotate("", xy=(cx0+1.5*dx, y_t_out+0.07), xytext=(cx0+1.5*dx, y_t_w-0.07),
                 arrowprops=dict(arrowstyle="-|>", color=C_GRAY, lw=0.5, mutation_scale=4))
-    ax.text(cx0+1.5*dx+0.04, (y_t_w+y_t_out)/2, "Bcast\xd7",
+    ax.text(cx0+1.5*dx+0.04, (y_t_w+y_t_out)/2,
+            r"$\sigma(\cdot)$,Bcast$\times$",
             fontsize=4.0, color=C_GRAY, ha="left", va="center")
+    # TAA residual: x' = x · t_gate + x  (fsta_module.py line 123)
+    ax.text(cx0+nc*dx+0.05, y_t_out, r"$+\,\mathbf{x}$",
+            ha="left", va="center", fontsize=4.6,
+            color=darken(C_PURPLE,0.30), fontweight="bold")
 
     ax.plot([x0+0.10, x0+w-0.10], [(y_t_out+y_s_in)/2]*2,
             color="#D0D0D0", lw=0.4, ls=(0,(1,1.2)))
@@ -683,17 +688,29 @@ def _panel_module_sham(ax, x0, y0, w, h):
     ax.text(gcx+0.04, (gcy+y_s_in)/2, "rfft2",
             fontsize=4.0, color=C_GRAY, ha="left", va="center")
 
+    # Reweighted spectrum (FreqMLP output: mag * mag_weight)
     ax.add_patch(mpatches.Rectangle((gcx-0.18, y_s_out-0.07), 0.36, 0.14,
                 facecolor=lighten(C_BLUE,0.30), edgecolor=darken(C_BLUE,0.30),
                 linewidth=0.5, hatch="//", zorder=3, alpha=0.85))
     ax.annotate("", xy=(gcx, y_s_out+0.08), xytext=(gcx, gcy-0.10),
                 arrowprops=dict(arrowstyle="-|>", color=C_GRAY, lw=0.5, mutation_scale=4))
-    ax.text(gcx+0.04, (gcy+y_s_out)/2, "Bcast\xd7",
+    ax.text(gcx+0.04, (gcy+y_s_out)/2, r"FreqMLP$\cdot$",
             fontsize=4.0, color=C_GRAY, ha="left", va="center")
 
-    ax.text(x0+w-0.08, y0+0.14,
-            r"$\mathbf{x}+\sigma(s)(\mathbf{y}-\mathbf{x}),\ s{=}0$",
-            ha="right", va="bottom", fontsize=4.2,
+    # Post-frequency stages (DCTSpatialAttention.forward steps 5-7):
+    #   iFFT (preserve phase) → 7x7 conv → spatial mask [B,1,H,W]
+    #   → broadcast over T-steps → multiply with x → +x residual
+    ax.text(gcx+0.20, y_s_out, r"$\to$ iFFT $\to$ 7$\times$7 Conv",
+            ha="left", va="center", fontsize=3.6,
+            color=darken(C_GRAY, 0.10), fontstyle="italic")
+    ax.text(gcx+0.20, y_s_out-0.13,
+            r"$\to$ mask $\cdot$ $\mathbf{x}_{[T,B,C,H,W]}$ $+\,\mathbf{x}$",
+            ha="left", va="center", fontsize=3.6,
+            color=darken(C_PURPLE, 0.30), fontweight="bold")
+
+    ax.text(x0+w-0.08, y0+0.04,
+            r"out$=\mathbf{x}+\sigma(s)(\mathbf{y}-\mathbf{x}),\ s{=}0$",
+            ha="right", va="bottom", fontsize=4.0,
             color=darken(C_PURPLE,0.30), fontstyle="italic")
 
 
@@ -705,7 +722,7 @@ def _panel_module_sshb(ax, x0, y0, w, h):
     ax.add_patch(FancyBboxPatch((x0,y0), w, h,
         boxstyle="round,pad=0,rounding_size=0.08",
         facecolor=C_LIGHT, edgecolor="#D8D8D8", linewidth=0.5, zorder=0))
-    ax.text(x0+0.10, y0+h-0.14, "(f) SSHB",
+    ax.text(x0+0.10, y0+h-0.14, "(d) SSHB",
             ha="left", va="center", fontsize=7.0, fontweight="bold", color="black")
     ax.text(x0+w-0.08, y0+h-0.14,
             "(Spectro-temporal Spike Hyper-Block)",
@@ -721,7 +738,7 @@ def _panel_module_sshb(ax, x0, y0, w, h):
         (r"5QS-LIF  $[T{\times}4{=}16]$",  C_YELLOW),
         (r"TCAM",                          C_GREEN),
         (r"Conv3d  $16{\to}T{=}4$",       C_GRAY),
-        (r"5QS-LIF{\to}Conv{\to}TDBN  \xd72",C_YELLOW),
+        (r"5QS-LIF{\to}Conv{\to}TDBN{\to}TCS-Att  \xd72",C_YELLOW),
         (r"bilinear $\uparrow\!2$",        C_GRAY),
         (r"TCS-Att",                       C_ORANGE),
         (r"FSE-MLP",                       C_GREEN),
@@ -777,23 +794,22 @@ def _panel_module_sshb(ax, x0, y0, w, h):
 # ---------------------------------------------------------------------------
 
 def _panel_module_zoom(ax):
+    """Bottom strip: 3 zoom-in panels in §III order — 5QS, SHAM, SSHB."""
     bottom_y = 0.05
     panel_h  = 1.90
     margin   = 0.15
-    gap      = 0.10
-    total_w  = 8.80 - 2*margin - 3*gap    # 8.20
+    gap      = 0.12
+    total_w  = 8.80 - 2*margin - 2*gap    # 3 panels → 2 gaps
 
-    w_dfrb = total_w * 0.30
-    w_5qs  = total_w * 0.19
-    w_sham = total_w * 0.24
-    w_sshb = total_w * 0.27
+    # Relative widths preserve the original 19:24:27 ratio (sum 70).
+    w_5qs  = total_w * 0.27
+    w_sham = total_w * 0.34
+    w_sshb = total_w * 0.39
 
-    x_dfrb = margin
-    x_5qs  = x_dfrb + w_dfrb + gap
+    x_5qs  = margin
     x_sham = x_5qs  + w_5qs  + gap
     x_sshb = x_sham + w_sham + gap
 
-    _panel_module_dfrb(ax, x_dfrb, bottom_y, w_dfrb, panel_h)
     _panel_module_5qs (ax, x_5qs,  bottom_y, w_5qs,  panel_h)
     _panel_module_sham(ax, x_sham, bottom_y, w_sham, panel_h)
     _panel_module_sshb(ax, x_sshb, bottom_y, w_sshb, panel_h)
@@ -821,7 +837,6 @@ def main(argv=None):
     fig.patch.set_facecolor(C_WHITE)
 
     _panel_architecture(ax)
-    _panel_constellation(ax)
     _panel_module_zoom(ax)
 
     out_path = out_dir / args.out_name
