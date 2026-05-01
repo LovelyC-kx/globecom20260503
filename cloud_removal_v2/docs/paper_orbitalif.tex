@@ -377,25 +377,59 @@ Table~\ref{tab:federated}.
 % =====================================================================
 \section{The \OrbitALIF{} Framework}\label{sec:framework}
 
-\OrbitALIF{} couples an attention-enhanced LIF restoration backbone
-with the decentralized constellation training pipeline of
-Section~\ref{sec:sysmodel} (Figure~\ref{fig:overview}). The backbone
-takes a cloudy RGB tile $\mathbf{c}\in\mathbb{R}^{3\times H\times W}$
-and predicts a cloud-free image via a global residual:
+\subsection{Design Principles and Architectural Overview}
+\label{sec:framework-principles}
 
+Cloud removal places two opposing pressures on the model.
+High-fidelity dense pixel regression demands capacity for
+multi-scale textures and global colour statistics, which favours
+large ANN restoration networks~\cite{ref:cuhkcr} but inflates
+inference energy. Onboard deployment demands sparse event-driven
+computation to fit a watt-level power envelope, which favours
+binary-spike SNNs~\cite{ref:flsnn,ref:esdnet} but caps per-step
+expressivity at one bit. Existing work resolves only one side. We
+instead organise the backbone around four principles that close
+both gaps jointly.
+
+\textbf{P1: Sparse event-driven activation.} Multi-level quantised
+spikes retain synaptic-operation sparsity for energy savings while
+widening per-step state to five levels.
+
+\textbf{P2: Multi-scale frequency processing.} Local high-frequency
+cloud edges, medium-scale texture, and global colour bias are each
+handled by a different operator (spike gating, dual-frequency
+residual, FFT-domain MLP), giving a global receptive field at
+$O(N\log N)$ cost.
+
+\textbf{P3: BN locality.} Every normalisation parameter stays
+satellite-local during aggregation, providing the interface to the
+FedBN-on-SNN protocol of Section~\ref{sec:sysmodel-procedure} and
+absorbing source-level cloud-thickness drift.
+
+\textbf{P4: Progressive gated fusion.} Learnable cross-branch gates
+are initialised so each new module is approximately identity at
+training start, letting the network recover gracefully if a branch
+is unstable in the first few epochs.
+
+The backbone follows a three-level U-shaped encoder--decoder.
+Given a cloudy RGB tile
+$\mathbf{c}\!\in\!\mathbb{R}^{3\times H\times W}$, it predicts the
+cloud-free image as a global residual,
 \begin{equation}
 \hat{\mathbf{y}}
-=
-\mathbf{c}
-+
-\mathrm{Conv}\!\left(
-\overline{\mathrm{Synth}(\mathrm{Anal}(\mathbf{c}))}^{(T)}
-\right),
+\;=\;
+\mathbf{c}\;+\;
+\mathrm{Conv}\!\left(\overline{\mathrm{Net}(\mathbf{c})}^{(T)}\right),
 \label{eq:globalresidual}
 \end{equation}
-where $T\!=\!4$ spike steps and $\overline{(\cdot)}^{(T)}$ is temporal
-averaging. The onboard deployment variant uses base channel width
-$C\!=\!24$ (${\approx}\,2.30$\,M parameters).
+where $T\!=\!4$ is the spike time horizon and
+$\overline{(\cdot)}^{(T)}$ averages over time. The onboard variant
+uses base channel width $C\!=\!24$ and has approximately
+$2.30$\,M parameters. These principles are instantiated across
+three scales: the neuron level (5QS-LIF, P1), the block level
+(\DFRB{} and \SHAM{}, P2), and the network level (\AGFM{} and
+\SSHB{}, P2 and P4). The training objective and the protocol
+interface that realises P3 close the section.
 
 \begin{figure*}[!htbp]
   \centering
@@ -410,8 +444,6 @@ $C\!=\!24$ (${\approx}\,2.30$\,M parameters).
   BN-tagged parameters remain local.}
   \label{fig:overview}
 \end{figure*}
-
-Five components are detailed below.
 
 \subsection{\FQS{}: Five-Level Quantized Spike}
 \label{sec:framework-5qs}
