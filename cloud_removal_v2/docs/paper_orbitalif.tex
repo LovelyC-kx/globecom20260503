@@ -46,6 +46,11 @@
 \newcommand{\D}{\mathcal{D}}
 \newcommand{\Dir}{\mathrm{Dir}}
 \newcommand{\OrbitALIF}{\textsc{OrbitALIF}}
+\newcommand{\FQS}{5QS}
+\newcommand{\DFRB}{\textsc{DFRB}}
+\newcommand{\SHAM}{\textsc{SHAM}}
+\newcommand{\AGFM}{\textsc{AGFM}}
+\newcommand{\SSHB}{\textsc{SSHB}}
 
 \graphicspath{{figures/}}
 
@@ -107,964 +112,306 @@ federated learning, onboard satellite computing.
 % =====================================================================
 \section{Introduction}\label{sec:intro}
 
-Low-Earth-orbit optical remote-sensing satellite networks
-continuously acquire large-scale space information, providing critical
-data support for real-time applications such as natural disaster
-monitoring, emergency response, agricultural observation, environmental
-assessment, and defense surveillance~\cite{ref:earthobs1,ref:earthobs2}.
-However, optical remote-sensing imagery is highly vulnerable to cloud
-contamination, which degrades image usability and affects downstream
-tasks such as object detection, land-cover classification, and change
-detection. Conventional processing pipelines usually follow a
-``satellite acquisition--raw data downlink--ground-server processing''
-paradigm, where cloud-contaminated images are first transmitted to
-ground stations and then restored and analyzed on ground servers. As
-satellite constellations scale up and imaging resolution increases,
-this paradigm faces an increasingly severe timeliness bottleneck:
-visible contact windows between satellites and ground stations are
-limited, downlink bandwidth is constrained, and ground-side processing
-further introduces additional latency. Existing studies on onboard
-federated learning have also pointed out that satellite data
-transmission is a critical bottleneck for Earth-observation
-applications, directly limiting real-time space information
-services~\cite{ref:onboardfl-bottleneck}.
+Low-Earth-orbit (LEO) satellite constellations continuously acquire
+large-scale optical remote-sensing imagery, but cloud contamination
+degrades image usability and delays time-critical downstream tasks.
+Conventional pipelines transmit raw imagery to ground servers for
+processing, creating a timeliness bottleneck as contact windows are
+narrow and bandwidth-constrained~\cite{ref:earthobs1,ref:onboardfl-bottleneck}.
+Space Computing Power Networks (Space-CPN) propose shifting intelligent
+processing onboard~\cite{ref:spacecpn1}, yet onboard cloud removal is
+non-trivial: it is a high-fidelity dense regression task requiring
+pixel-level recovery of cloud boundaries and fine-grained textures,
+and ANN-based models incur energy costs incompatible with LEO
+solar-power budgets~\cite{ref:cuhkcr}.
 
-Space Computing Power Networks (Space-CPN) provide a promising
-architecture to alleviate the above bottleneck. Instead of treating
-satellites merely as data acquisition and forwarding nodes, Space-CPN
-emphasizes the coordinated scheduling of communication, computation,
-and intelligent processing resources in space networks, enabling
-satellites to undertake part of the in-orbit data processing
-workload~\cite{ref:spacecpn1}. For optical cloud removal, this paradigm
-is particularly meaningful. Cloud contamination is a fundamental
-problem that must be addressed before optical remote-sensing data can
-be reliably used by downstream tasks. If cloud removal can be performed
-onboard, the downlink of low-quality raw observations can be reduced,
-the response speed of time-critical tasks can be improved, and cleaner
-inputs can be provided for subsequent interpretation. Recent studies on
-Space-CPN and in-orbit computing also regard distributed onboard
-computation as an important direction for future space information
-processing~\cite{ref:spacecpn1}.
+Spiking neural networks (SNNs) transmit information through sparse
+binary events—synaptic operations fire only on spikes—enabling
+order-of-magnitude energy reductions on neuromorphic hardware~\cite{ref:maass1997,ref:loihi}.
+For onboard training, federated learning avoids raw-data downlink by
+sharing model parameters~\cite{ref:fedavg,ref:fedbn}.
+FLSNN~\cite{ref:flsnn} demonstrated decentralized federated SNN
+training on a Walker-Star constellation, but only for image
+\emph{classification}. Cloud removal imposes three additional gaps:
+dense pixel regression rather than discrete label prediction;
+multi-scale texture recovery rather than compact feature extraction;
+and source-level non-IID data driven by cloud thickness and sensor
+variation rather than class-label imbalance.
 
-Nevertheless, onboard optical cloud removal is not a simple transfer
-of ground-side models to satellites. First, optical cloud removal is a
-high-fidelity dense image restoration task. It requires pixel-level
-recovery of cloud boundaries, thin-cloud textures, ground structures,
-and high-frequency details. Existing artificial neural network
-(ANN)-based cloud-removal models typically rely on continuous-valued
-activations and dense multiply-accumulate operations, resulting in
-considerable computation and energy costs. In particular, recent
-diffusion-based cloud-removal methods have achieved strong performance
-on high-resolution datasets such as CUHK-CR through progressive texture
-recovery, but their iterative inference process is inherently in
-tension with the limited power supply, thermal dissipation, and
-computing budget of onboard satellite platforms~\cite{ref:cuhkcr}.
-Therefore, onboard cloud-removal models should not only pursue offline
-PSNR/SSIM performance, but also consider inference energy, computation
-cost, and deployment feasibility.
-
-Spiking neural networks (SNNs) provide a computational paradigm
-different from conventional ANNs for low-energy onboard intelligence.
-SNNs transmit information through sparse event-driven spike activities,
-allowing silent neurons to skip unnecessary computation and enabling
-low-cost spike operations on neuromorphic hardware~\cite{ref:maass1997,
-ref:loihi}. For LEO satellite platforms constrained by solar power,
-payload energy consumption, and thermal control, such sparse
-computation is highly attractive. Previous studies have explored the
-potential of SNNs in low-level vision restoration tasks such as image
-deraining~\cite{ref:esdnet}, and SNNs have also been applied to
-decentralized federated classification in satellite
-scenarios~\cite{ref:flsnn}. However, optical cloud removal imposes
-stronger requirements on SNNs. Binary spikes can reduce energy
-consumption but may lose the fine-grained activation representation
-needed for pixel-level regression. Meanwhile, cloud occlusion is
-spatially non-uniform and spectrally complex, requiring the model to
-capture cloud boundaries, semi-transparent thin-cloud structures, and
-high-frequency ground textures simultaneously. Thus, an onboard SNN
-cloud-removal model must balance sparse low-energy computation with
-high-fidelity restoration.
-
-In addition to inference energy, onboard model training is also
-challenging. Due to differences in orbital positions, observation
-regions, sensor states, atmospheric conditions, and cloud types, local
-data on different satellites usually exhibit significant source-level
-heterogeneity. For example, some satellites may observe more thin-cloud
-samples, whereas others may mainly encounter thick clouds or complex
-cloud distributions. Centralizing all raw observations on the ground
-for training would incur high communication overhead and also
-contradict the trend toward autonomous in-orbit processing emphasized
-by Space-CPN. Federated
-learning~\cite{ref:fedavg,ref:fedbn} provides a natural
-solution: each satellite trains a model on its local
-data and exchanges model parameters rather than raw observations.
-However, standard centralized federated learning typically relies on a
-ground parameter server, whereas LEO constellations are characterized
-by intermittent connectivity and constrained intra-/inter-plane
-communication topologies. Decentralized inter-satellite collaborative
-training~\cite{ref:gossip-boyd} is therefore more suitable for
-constellation scenarios. Moreover, source-level heterogeneous data
-induce feature distribution shifts across satellites, and globally
-shared batch-normalization statistics may destroy local feature
-calibration. FedBN preserves local BN statistics to mitigate
-feature-shift non-IID, which matches the source-level heterogeneous
-satellite cloud-removal setting considered in this
-work~\cite{ref:fedbn}.
-
-The closest related work is FLSNN~\cite{ref:flsnn}, which demonstrates
-the feasibility of decentralized federated SNN training on a
-Walker-Star constellation for the EuroSAT classification task. However,
-directly applying this paradigm to onboard optical cloud removal faces
-three key gaps. The first is the \emph{task gap}: classification
-produces discrete labels, whereas cloud removal is dense pixel
-regression with different gradient structures, loss functions, and
-restoration objectives. The second is the \emph{model gap}: satellite
-cloud removal requires the reconstruction of multi-scale textures,
-cloud boundaries, and spectral details, while small spiking
-classification networks are insufficient for high-fidelity
-reconstruction. The third is the \emph{data-heterogeneity gap}: non-IID
-satellite observations in practical cloud-removal scenarios are driven
-more by source factors such as sensors, cloud thickness, atmospheric
-conditions, and observation regions than by class-label imbalance.
-These gaps indicate that onboard federated cloud removal requires a
-co-design across the task, model, and system levels.
-
-To address these challenges, this paper studies a new problem:
-\emph{decentralized onboard federated optical cloud removal over
-satellite constellations}. To the best of our knowledge, this is the
-first work to formulate optical cloud removal under this setting.
-Different from existing ground-centered cloud-removal methods, this
-work focuses on remote-sensing restoration under onboard communication,
-energy, and computation constraints. Different from existing onboard
-federated learning studies, this work addresses high-fidelity dense
-image restoration rather than relatively lightweight tasks such as
-classification or compression. The goal is not merely to improve
-offline ground-side restoration metrics, but to establish a unified
-design framework that jointly considers cloud-removal quality,
-inference energy, onboard computation, and decentralized training.
-
-To this end, we propose \textbf{\OrbitALIF{}}, an
-\emph{Orbital Attention-enhanced Leaky Integrate-and-Fire} framework
-for onboard optical cloud removal. \OrbitALIF{} exploits the sparse
-event-driven computation of SNNs to reduce inference energy, while
-improving pixel-level restoration capability through attention- and
-receptive-field-enhanced modules and architecture. At the model level,
-\OrbitALIF{} introduces five-level quantized spikes to improve the
-representational capability of conventional binary spikes, and combines
-dual-frequency residual modeling, frequency-spatial attention, adaptive
-gated fusion, and spectro-temporal spike enhancement to recover cloud
-boundaries, thin-cloud textures, and high-frequency ground details. At
-the system level, \OrbitALIF{} constructs a decentralized constellation
-training pipeline, retaining local BN statistics~\cite{ref:fedbn} to
-mitigate source-level feature shift and exchanging shared parameters
-through intra-plane aggregation and inter-plane Gossip
-mixing~\cite{ref:gossip-boyd}. FedBN and Gossip are not proposed here
-as new federated optimization algorithms; rather, they are adopted as
-system-level training strategies adapted to constellation communication
-topology and source-level heterogeneous data.
-
-The main contributions of this work are summarized as follows.
-
+We propose \textbf{\OrbitALIF{}}, the first framework for
+decentralized onboard federated SNN-based optical cloud removal.
+Contributions:
 \begin{itemize}
-\item \textbf{We formulate decentralized onboard federated optical
-  cloud removal.} To the best of our knowledge, this work is the first
-  to formulate optical cloud removal as a decentralized onboard
-  federated learning problem over satellite constellations, unifying
-  optical remote-sensing restoration, onboard intelligent processing,
-  and inter-satellite collaborative learning in a single framework.
-
-\item \textbf{We propose \OrbitALIF{} for low-energy onboard cloud
-  removal.} \OrbitALIF{} combines attention-enhanced LIF dynamics with
-  sparse spiking computation. Through five-level quantized spikes,
-  dual-frequency residual modeling, frequency-spatial attention,
-  adaptive gated fusion, and spectro-temporal spike enhancement,
-  \OrbitALIF{} preserves pixel-level restoration capability under
-  low-power computation.
-
-\item \textbf{We design a decentralized constellation training pipeline
-  for source-level heterogeneous data.} To handle distribution
-  differences across satellite observations, \OrbitALIF{} retains local
-  BN statistics to mitigate feature shift and exchanges shared
-  parameters through intra-plane aggregation and inter-plane Gossip
-  mixing, avoiding both large-scale raw-data downlink and dependence on
-  a centralized ground parameter server.
-
-\item \textbf{We validate the quality--energy advantage and cross-task
-  restoration potential of \OrbitALIF{}.} Experiments show that the
-  $2.30$\,M onboard deployment variant improves cloud-removal quality
-  while reducing per-image inference energy by up to $72.3\!\times$.
-  The $14$\,M scaled variant reaches SOTA performance on image
-  deraining and achieves competitive near-SOTA performance on optical
-  cloud removal, indicating that attention-enhanced LIF dynamics have
-  broader potential for low-level vision restoration.
+\item \textbf{Problem formulation.} We formulate decentralized onboard
+  federated cloud removal over a $5\!\times\!10$ Walker-Star
+  constellation with source-level Dirichlet heterogeneity.
+\item \textbf{\OrbitALIF{} backbone.} Five-level quantized spikes
+  (\FQS{}), dual-frequency residual blocks (\DFRB{}), frequency-spatial
+  attention (\SHAM{}), adaptive gated fusion (\AGFM{}), and
+  spectro-temporal hyper-blocks (\SSHB{}) deliver high-fidelity spiking
+  cloud removal under sparse event-driven computation.
+\item \textbf{System results.} The $2.30$\,M onboard variant improves
+  cloud removal by $+0.50$\,dB and reduces inference energy by up to
+  $72.3\!\times$ over a compact ANN baseline. The \OrbitALIF{}-ANN
+  backbone outperforms the PlainUNet baseline under the same
+  decentralized FedBN\,+\,Gossip training protocol.
 \end{itemize}
 
 The remainder of this paper is organized as follows.
-Section~\ref{sec:sysmodel} introduces the constellation model, the
-federated learning formulation, and the source-level Dirichlet non-IID
-partition. Section~\ref{sec:framework} presents the \OrbitALIF{}
-architecture and decentralized training pipeline.
-Section~\ref{sec:experiments} reports centralized cloud-removal
-results, component ablations, federated training results, and energy
-analysis. Section~\ref{sec:conclusion} concludes this paper.
+Section~\ref{sec:sysmodel} presents the system model.
+Section~\ref{sec:framework} details the \OrbitALIF{} framework.
+Section~\ref{sec:experiments} reports experimental results.
+Section~\ref{sec:conclusion} concludes.
 
-% =====================================================================
-% Section II / III / IV / V — TO BE COMPOSED BY THE USER
-% =====================================================================
 % =====================================================================
 % Section II: System Model
 % =====================================================================
 \section{System Model}\label{sec:sysmodel}
 
-\subsection{LEO Constellation and Inter-Satellite Links}\label{sec:sysmodel-constellation}
+\subsection{Constellation and Problem Setup}\label{sec:sysmodel-setup}
 
-We consider a Walker-Star low-Earth-orbit (LEO) satellite constellation
-denoted by
-\begin{equation}
-\mathcal{S}
-\;=\;
-\left\{ s_{i,k} : i \in \mathcal{N}, \; k \in \mathcal{K}_i \right\},
-\label{eq:constellation}
-\end{equation}
-where $\mathcal{N}$ is the set of orbital planes, $N\!=\!|\mathcal{N}|$
-is the number of planes, and $\mathcal{K}_i$ is the set of satellites
-in the $i$-th plane.  For notational simplicity we assume each plane
-contains the same number of satellites,
-$|\mathcal{K}_i|\!=\!K$ for all $i\!\in\!\mathcal{N}$.
-Each satellite $s_{i,k}$ is equipped with inter-satellite laser links
-(ISLs) for in-constellation model exchange. According to the
-connection pattern, ISLs are divided into two categories: intra-plane
-links and inter-plane links.
-
-Intra-plane links connect adjacent satellites within the same orbital
-plane. Since satellites in the same plane have relatively stable
-geometry, these links are quasi-stationary across orbital periods and
-are suitable for reliable ring-style aggregation. Inter-plane links
-connect satellites from different orbital planes. Their availability
-is more time-varying because of relative orbital motion, visibility
-constraints, and Doppler effects. Following the Walker-Star setting
-adopted in prior decentralized satellite
-learning~\cite{ref:flsnn}, we instantiate $N\!=\!5$ and $K\!=\!10$,
-yielding $NK\!=\!50$ satellites in total. For inter-plane
-communication, we adopt a fixed chain topology as a simplified mixing
-graph.
-
-\subsection{Federated Optical Cloud-Removal Problem}\label{sec:sysmodel-problem}
-
-Each satellite $s_{i,k}$ holds a local paired image dataset
-\begin{equation}
-\mathcal{D}_{i,k}
-\;=\;
-\left\{ (c_n, y_n) \right\}_{n=1}^{|\mathcal{D}_{i,k}|},
-\label{eq:dataset}
-\end{equation}
-where $c_n\!\in\!\mathbb{R}^{3 \times H \times W}$ denotes a cloudy
-image tile and $y_n\!\in\!\mathbb{R}^{3 \times H \times W}$ denotes
-the corresponding cloud-free reference tile.  Let
-$g_x : \mathbb{R}^{3 \times H \times W} \!\rightarrow\!
-\mathbb{R}^{3 \times H \times W}$ be the \OrbitALIF{} cloud-removal
-model parameterized by $x \!\in\! \mathbb{R}^d$, where
-$d \!\approx\! 2.30 \!\times\! 10^6$ for the onboard deployment
-variant. Let $\ell(g_x(c), y)$ denote the pixel-level reconstruction
-loss, defined in Section~\ref{sec:framework-loss}. The global training
-objective over the whole constellation is to minimise the empirical
-risk
+We consider a Walker-Star LEO constellation of $N\!=\!5$ orbital
+planes, each with $K\!=\!10$ satellites ($NK\!=\!50$ total), connected
+by intra-plane (quasi-stationary) and inter-plane (chain) ISLs.
+Each satellite $s_{i,k}$ holds local paired cloudy/clear image
+tiles $\mathcal{D}_{i,k}$ and participates in training without
+uploading raw observations. The global objective is to minimise
 \begin{equation}
 \min_{x \in \mathbb{R}^d}
 f(x)
 \;=\;
 \frac{1}{NK}
-\sum_{i \in \mathcal{N}}
-\sum_{k \in \mathcal{K}_i}
-f_{i,k}(x),
+\sum_{i,k}
+\frac{1}{|\mathcal{D}_{i,k}|}
+\!\sum_{(c,y)\in\mathcal{D}_{i,k}}\!
+\ell\!\left(g_x(c),y\right),
 \label{eq:globalobj}
 \end{equation}
-where the local empirical risk on satellite $s_{i,k}$ is
+where $g_x$ is \OrbitALIF{} and $\ell$ is defined in
+Section~\ref{sec:framework-loss}.
+
+To model satellite data heterogeneity, we use a source-level
+Dirichlet non-IID partition with $S\!=\!2$ source domains (CUHK-CR1:
+thin cloud; CUHK-CR2: thick cloud). Each satellite draws a source
+mixing vector $\mathbf{p}_{i,k}\!\sim\!\Dir(\alpha\mathbf{1}_S)$
+and samples tiles accordingly. Under $\alpha\!=\!0.1$, 30 of 50
+satellites hold only five tiles each, while three satellites hold
+$\{117,118,118\}$ samples.
+
+\subsection{Decentralized Training Protocol}\label{sec:sysmodel-procedure}
+
+Training runs for $R\!=\!200$ rounds; each round has four steps.
+(S1)~Each satellite performs $E\!=\!2$ local AdamW steps on
+$\mathcal{D}_{i,k}$.
+(S2)~Intra-plane ring AllReduce averages non-BN parameters:
 \begin{equation}
-f_{i,k}(x)
-\;=\;
-\frac{1}{|\mathcal{D}_{i,k}|}
-\sum_{(c, y) \in \mathcal{D}_{i,k}}
-\ell\!\left( g_x(c), \, y \right).
-\label{eq:localobj}
-\end{equation}
-
-A centralised solution would require all paired cloudy/clear image
-tiles to be downlinked to ground servers for training. This
-contradicts the bandwidth and latency constraints discussed in
-Section~\ref{sec:intro}. We therefore adopt a fully onboard
-decentralised training strategy, where satellites compute local
-updates on their own data and exchange model parameters through ISLs
-without uploading raw observations.
-
-\subsection{Decentralised Onboard Training Procedure}\label{sec:sysmodel-procedure}
-
-The training proceeds in $R$ global communication rounds. Round $0$
-starts from a common random initialisation $x^{(0)}\!\in\!\mathbb{R}^d$
-that is broadcast to every satellite once at deployment time. Each
-subsequent round $r\!\in\!\{0, \ldots, R-1\}$ then consists of four
-steps. The symbol $r$ here counts inter-satellite \emph{communication
-rounds} and is distinct from the spike-train time horizon $T\!=\!4$
-of the underlying SNN, which is internal to a single forward pass and
-discussed in Section~\ref{sec:framework}.
-
-\subsubsection*{S1: Local update}
-At the beginning of round $r$, each satellite initialises its model
-from its plane-level broadcast model:
-\begin{equation*}
-x_{i,k}^{(r, 0)} \;=\; x_i^{(r)},
-\end{equation*}
-with $x_i^{(0)}\!=\!x^{(0)}$ at round $r\!=\!0$.
-Satellite $s_{i,k}$ then performs $E$ local AdamW steps on its dataset
-$\mathcal{D}_{i,k}$:
-\begin{equation}
-x_{i,k}^{(r, e+1)}
-\;=\;
-\mathrm{AdamW}\!\left(
-x_{i,k}^{(r, e)},
-\,
-\nabla \tilde{f}_{i,k}\!\left( x_{i,k}^{(r, e)} \right),
-\,
-\eta_r
-\right),
-\quad e\!=\!0, \ldots, E\!-\!1,
-\label{eq:localstep}
-\end{equation}
-where $\nabla\tilde{f}_{i,k}$ is the mini-batch stochastic estimate
-of $\nabla f_{i,k}$ and $\eta_r$ is the learning rate at round $r$.
-The notation $\mathrm{AdamW}(\cdot,\cdot,\cdot)$ stands for the
-abstract local-update operator implemented by the AdamW optimiser;
-replacing it by SGD or any other optimiser leaves the rest of the
-training procedure unchanged.
-
-\subsubsection*{S2: Intra-plane aggregation}
-After local updates, the $K$ satellites in each orbital plane perform
-ring AllReduce over quasi-stationary intra-plane ISLs. This produces
-the plane-level consensus model
-\begin{equation}
-x_i^{(r + \frac{1}{2})}
+x_i^{(r+\frac{1}{2})}
 \;=\;
 \frac{1}{K}
 \sum_{k \in \mathcal{K}_i}
-x_{i,k}^{(r, E)}.
+x_{i,k}^{(r,E)}.
 \label{eq:intraplane}
 \end{equation}
-To accommodate source-level feature heterogeneity, we adopt the
-\textsc{FedBN}~\cite{ref:fedbn} normalisation protocol: every
-batch-normalisation parameter, including the affine
-$(\gamma,\beta)$, the running mean, and the running variance, is
-\emph{excluded} from the averaging in (\ref{eq:intraplane}); these
-parameters are taken from the plane leader of plane $i$ verbatim and
-are not averaged across the $K$ satellites of the plane. The same
-exclusion is applied later in the inter-plane Gossip step
-(Section~\ref{sec:sysmodel-procedure}, S3). Local training in S1
-then refines the BN parameters of each satellite on its own data, so
-that BN statistics naturally adapt to the source distribution
-observed locally.
-
-\subsubsection*{S3: Inter-plane Gossip mixing}
-After intra-plane aggregation, each orbital plane obtains a plane-level
-model $x_i^{(r+\frac{1}{2})}$. The $N$ plane-level models are then
-mixed through single-step Gossip averaging~\cite{ref:gossip-boyd} over
-the inter-plane chain topology:
+(S3)~Single-step inter-plane Gossip over the chain topology:
 \begin{equation}
 x_i^{(r+1)}
 \;=\;
 \sum_{j \in \mathcal{N}}
-W_{ij} \, x_j^{(r + \frac{1}{2})},
+W_{ij}\, x_j^{(r+\frac{1}{2})},
 \quad i \in \mathcal{N},
 \label{eq:gossip}
 \end{equation}
-where $W \!\in\! \mathbb{R}^{N \times N}$ is a symmetric doubly
-stochastic mixing matrix satisfying
-\begin{equation*}
-W \mathbf{1} \!=\! \mathbf{1}, \quad
-\mathbf{1}^{\!\top} W \!=\! \mathbf{1}^{\!\top}, \quad
-W \!=\! W^{\!\top}.
-\end{equation*}
-Consistent with the \textsc{FedBN} protocol adopted in S2, all
-batch-normalisation parameters (affine $(\gamma,\beta)$, running mean,
-and running variance) are also excluded from the Gossip mixing in
-(\ref{eq:gossip}); only the convolutional weights and other dense
-layer weights are mixed across orbital planes. In this way, the
-constellation shares restoration knowledge across orbital planes while
-avoiding the destructive averaging of feature statistics that would
-arise under pure FedAvg-style aggregation~\cite{ref:fedavg} when
-satellites observe different cloud thicknesses, sensors, and
-atmospheric conditions.
+where $W$ is the symmetric doubly-stochastic chain mixing matrix.
+(S4)~Intra-plane broadcast of $x_i^{(r+1)}$ to all satellites in plane $i$.
 
-\subsubsection*{S4: Intra-plane broadcast}
-Finally, each orbital plane broadcasts the mixed model
-$x_i^{(r+1)}$ to all satellites $s_{i,k}\!\in\!\mathcal{K}_i$ in the
-same plane. This model is used as the initialisation for the next
-communication round. The above four steps complete one round of
-decentralised onboard training.
-
-\subsection{Source-Level Dirichlet Non-IID Partition}\label{sec:sysmodel-dirichlet}
-
-To simulate the natural source-level feature heterogeneity of
-satellite imagery, we do not use the conventional label-level Dirichlet
-partition commonly adopted in classification tasks. Instead, we
-construct a source-level non-IID partition over the training pool.
-Specifically, the joint training set is divided into $S\!=\!2$ source
-domains: CUHK-CR1 represents thin-cloud scenes, and CUHK-CR2
-represents thick-cloud scenes~\cite{ref:cuhkcr}. For each satellite
-$s_{i,k}$, we draw a source mixing vector
-\begin{equation}
-\mathbf{p}_{i,k}
-\;=\;
-\left( p_{i,k}^{(1)}, \, p_{i,k}^{(2)} \right)
-\;\sim\;
-\Dir\!\left( \alpha \mathbf{1}_S \right).
-\label{eq:dirichlet}
-\end{equation}
-Satellite $s_{i,k}$ then samples image tiles from the $s$-th source
-domain in proportion to $p_{i,k}^{(s)}$. To ensure executable local
-training, each satellite is assigned at least five training samples.
-
-The Dirichlet concentration parameter $\alpha$ controls the strength
-of source-level heterogeneity. A smaller $\alpha$ produces more
-concentrated single-source clients, where some satellites mainly hold
-thin-cloud samples while others mainly hold thick-cloud samples. A
-larger $\alpha$ yields a more balanced source mixture and approaches
-an IID-like setting. We use $\alpha\!=\!0.1$ as the default
-configuration. Under this setting, $30$ out of $50$ satellites hold
-only the minimum of five samples ($60\%$ of the constellation), while
-three satellites individually hold more than $100$ samples, with the
-actual partition log recording the three largest client sizes as
-$\{117, 118, 118\}$. This partition reflects both the data sparsity
-and source-level heterogeneity that may arise in onboard cloud-removal
-scenarios. Sensitivity to $\alpha$ is reported in
-Section~\ref{sec:exp-federated}.
+Following \textsc{FedBN}~\cite{ref:fedbn}, all BN-tagged
+parameters---affine $(\gamma,\beta)$, running statistics, and TDBN
+parameters---are excluded from both \eqref{eq:intraplane} and
+\eqref{eq:gossip}. Only non-BN convolutional and attention weights
+are exchanged, so each satellite's normalization adapts to its local
+cloud-density distribution without cross-satellite interference.
 
 % =====================================================================
 % Section III: The ORBITALIF Framework
 % =====================================================================
 \section{The \OrbitALIF{} Framework}\label{sec:framework}
 
-The \OrbitALIF{} framework consists of two co-designed components:
-an attention-enhanced LIF restoration backbone
-(Section~\ref{sec:framework-arch}) and a decentralized constellation
-training pipeline (Section~\ref{sec:framework-fl}). Figure~\ref{fig:overview}
-illustrates the overall system. On each satellite, the restoration
-backbone takes a cloudy RGB image tile
-$\mathbf{c}\in\mathbb{R}^{B\times 3\times H\times W}$ as input and
-predicts a cloud-free image $\hat{\mathbf{y}}$ through a sequence of
-spiking restoration modules. Across the constellation, satellites
-collaboratively train the shared restoration parameters through
-intra-plane aggregation and inter-plane Gossip mixing, while all
-BN-tagged parameters are kept local following the \textsc{FedBN}
-protocol described in Section~\ref{sec:sysmodel-procedure}.
+\OrbitALIF{} couples an attention-enhanced LIF restoration backbone
+with the decentralized constellation training pipeline of
+Section~\ref{sec:sysmodel} (Figure~\ref{fig:overview}). The backbone
+takes a cloudy RGB tile $\mathbf{c}\in\mathbb{R}^{3\times H\times W}$
+and predicts a cloud-free image via a global residual:
 
-\begin{figure*}[!htbp]
-  \centering
-  \includegraphics[width=\textwidth]{fig1.pdf}
-  \caption{\OrbitALIF{} system overview. \textbf{(a)} Single-satellite
-  restoration model: a three-level multi-scale spiking restoration
-  backbone with full-resolution spectro-temporal spike enhancement,
-  deeper dual-frequency residual modeling, adaptive gated cross-stage
-  feature fusion, and frequency-spatial attention. The backbone predicts
-  a residual cloud-removal image that is added to the cloudy input.
-  \textbf{(b)} Decentralized $5\times10$ Walker-Star constellation:
-  satellites perform intra-plane aggregation over quasi-stationary
-  intra-plane ISLs and inter-plane Gossip mixing over the chain topology.
-  All BN-tagged parameters remain local and are excluded from both
-  aggregation stages.}
-  \label{fig:overview}
-\end{figure*}
-
-\subsection{\OrbitALIF{} Restoration Backbone}
-\label{sec:framework-arch}
-
-\OrbitALIF{} adopts a three-level multi-scale spiking restoration
-backbone designed for onboard optical cloud removal. The shallow level
-preserves the full $H\times W$ spatial resolution to retain cloud
-boundaries, thin-cloud textures, and high-frequency ground details.
-The two deeper levels progressively reduce the spatial resolution by
-PixelUnshuffle while increasing the feature width, allowing the model
-to capture larger-context cloud structures under compact computation.
-A symmetric synthesis path reconstructs the clean image from the
-multi-scale spike features, and adaptive gated cross-stage fusion is
-used to combine shallow spatial details with deeper restoration
-responses.
-
-Let $T$ denote the spike-train time horizon inside a single forward
-pass. In this work, all spiking modules use $T=4$, which is distinct
-from the federated communication-round count $R$ in
-Section~\ref{sec:sysmodel-procedure}. Given a cloudy input image
-$\mathbf{c}$, the backbone first maps it into multi-scale spike
-features through the analysis path. The synthesis path then produces
-a residual restoration image, which is added to the input through a
-global residual connection:
 \begin{equation}
 \hat{\mathbf{y}}
 =
 \mathbf{c}
 +
-\mathrm{Conv}
-\left(
-\overline{
-\mathrm{Synth}
-\left(
-\mathrm{Anal}(\mathbf{c})
-\right)
-}^{(T)}
+\mathrm{Conv}\!\left(
+\overline{\mathrm{Synth}(\mathrm{Anal}(\mathbf{c}))}^{(T)}
 \right),
 \label{eq:globalresidual}
 \end{equation}
-where $\mathrm{Anal}(\cdot)$ and $\mathrm{Synth}(\cdot)$ denote the
-analysis and synthesis paths, respectively, and
-$\overline{(\cdot)}^{(T)}$ denotes temporal averaging over the
-$T=4$ spike steps.
+where $T\!=\!4$ spike steps and $\overline{(\cdot)}^{(T)}$ is temporal
+averaging. The onboard deployment variant uses base channel width
+$C\!=\!24$ (${\approx}\,2.30$\,M parameters).
 
-The deployment variant sets the base channel width to $C=24$,
-resulting in approximately $2.30$\,M trainable parameters. This compact
-configuration is used for centralized cloud-removal experiments,
-ablation studies, energy analysis, and decentralized federated
-training. We also instantiate a capacity-scaled variant with
-$C=56$ and approximately $14$\,M parameters. This larger variant shares
-the same dataflow and is used to study restoration scalability and the
-quality--computation trade-off, rather than to claim an unconditional
-cloud-removal SOTA result.
+\begin{figure*}[!htbp]
+  \centering
+  \includegraphics[width=\textwidth]{fig1.pdf}
+  \caption{\OrbitALIF{} system overview. \textbf{(a)}~Single-satellite
+  pipeline: three-level multi-scale spiking backbone with full-resolution
+  \SSHB{}, dual-frequency \DFRB{}, adaptive gated \AGFM{}, and
+  frequency-spatial \SHAM{}; global residual adds the predicted
+  correction to the cloudy input. \textbf{(b)}~Decentralized
+  $5\!\times\!10$ Walker-Star constellation: intra-plane ring
+  AllReduce and inter-plane Gossip mix non-BN parameters; BN-tagged
+  parameters remain local.}
+  \label{fig:overview}
+\end{figure*}
 
-The backbone is constructed from five main components. The five-level
-quantized spike (\FQS{}) activation improves the representation
-granularity of sparse LIF dynamics. The dual-frequency residual block
-(\DFRB{}) captures complementary temporal and spatial-frequency
-responses through two cascaded processing groups, with frequency-spatial
-attention applied at the tail of each block. The spectral-spatial
-hybrid attention module (\SHAM{}) recalibrates spike features along
-temporal and frequency-spatial dimensions and is embedded within each
-\DFRB{}. The adaptive gated fusion module (\AGFM{}) performs
-content-adaptive cross-stage feature fusion at the first and second
-multi-scale levels. Finally, the spectro-temporal spike hyper-block
-(\SSHB{}) enhances full-resolution features through temporal expansion,
-spike-convolutional refinement, and frequency-domain spatial mixing.
-These components are detailed in the following subsections.
+Five components are detailed below.
 
 \subsection{\FQS{}: Five-Level Quantized Spike}
 \label{sec:framework-5qs}
 
-Binary LIF spikes provide sparse event-driven computation, but they
-restrict each time step to a one-bit activation state. This is overly
-restrictive for pixel-level cloud removal, where intermediate features
-must preserve weak color gradients, thin-cloud transitions, and
-fine-grained texture variations. Replacing spikes with continuous
-ANN-style activations would recover a richer dynamic range, but would
-also weaken the sparse operation pattern that makes SNNs attractive
-for onboard inference.
-
-To balance activation expressiveness and event-driven sparsity,
-\OrbitALIF{} introduces the five-level quantized spike (\FQS{})
-activation. Instead of emitting a binary spike $o_t\in\{0,1\}$, a
-\FQS{} neuron clamps the membrane potential $u_t$ to $[0,4]$, rounds
-to the nearest integer, and normalizes by 4:
+Binary spikes restrict each step to a one-bit state, insufficient for
+dense pixel restoration. \FQS{} clamps the membrane potential to
+$[0,4]$, rounds, and normalises by 4:
 \begin{equation}
 o_t
 =
-\frac{
-\mathrm{round}\!\left(\mathrm{clamp}(u_t,\,0,\,4)\right)
-}{4}
+\frac{\mathrm{round}(\mathrm{clamp}(u_t,0,4))}{4}
 \;\in\;
 \left\{0,\,\tfrac{1}{4},\,\tfrac{1}{2},\,\tfrac{3}{4},\,1\right\}.
 \label{eq:5qs-forward}
 \end{equation}
-A synaptic operation is counted only when $o_t>0$, so the activation
-remains event-driven while providing five discrete non-negative
-amplitude levels above the silent state. In this sense, \FQS{} improves
-per-step representation granularity without reverting to dense
-continuous ANN activations.
-
-The quantization in \eqref{eq:5qs-forward} is non-differentiable.
-During training, we use a straight-through rectangular surrogate
-gradient over the active quantization range $[0,4]$:
-\begin{equation}
-\frac{\partial o_t}{\partial u_t}
-\approx
-\frac{1}{4}\cdot
-\mathbb{1}\bigl\{0\le u_t\le 4\bigr\}.
-\label{eq:5qs-surrogate}
-\end{equation}
-This surrogate passes scaled gradients only within the effective
-five-level activation window and stabilizes the optimization of
-multi-level quantized spikes. In our ablation study, replacing binary
-spikes with \FQS{} consistently improves cloud-removal fidelity,
-indicating that multi-level spike amplitudes are important for
-restoring subtle cloud and texture details.
+Synaptic operations fire only when $o_t\!>\!0$, preserving
+event-driven sparsity with five amplitude levels.
+Training uses the straight-through surrogate
+$\partial o_t/\partial u_t \approx \tfrac{1}{4}\cdot
+\mathbb{1}\{0\le u_t\le 4\}$.
+Ablation B3 (Section~\ref{sec:exp-ablation}) confirms \FQS{}
+raises PSNR by $+0.302$\,dB over binary spikes.
 
 \subsection{\DFRB{}: Dual-Frequency Residual Block}
 \label{sec:framework-dfrb}
 
-Optical cloud removal requires two complementary types of information:
-temporal spike responses that describe cloud boundary transitions
-across the $T$-step spike train, and spatial high-frequency responses
-that preserve vegetation texture, urban grids, and fine-grained ground
-details. A single local spiking convolution tends to emphasize only
-one part of this spectrum. As a result, the model may recover broad
-cloud contours while losing fine textures, or preserve local textures
-while failing to model temporally diffuse cloud structures.
-
-The dual-frequency residual block (\DFRB{}) is designed to capture
-these complementary responses within a sparse spiking dataflow.
-Rather than using two independent parallel branches, \DFRB{}
-consists of two cascaded processing groups applied sequentially.
-Figure~\ref{fig:overview}(c) schematically illustrates the dual-frequency
-information flow; the two groups are applied sequentially in the
-actual implementation.
-
-The first group extracts temporal spike responses. Given the input
-feature $\mathbf{X}$, a standard LIF neuron separates it into a
-high-frequency temporal component $\mathbf{X}_{h}$ and a residual
-low-frequency component $\mathbf{X}_{l}=\mathbf{X}-\mathbf{X}_{h}$.
-These are combined with learnable scales $\alpha_h,\alpha_l$ and a
-nonlinear interaction term before being passed through a convolutional
-layer and BN:
+Cloud removal needs both temporal LIF responses (cloud boundaries)
+and spatial high-frequency components (fine textures). \DFRB{}
+captures these through two \emph{cascaded} groups. Group~1 applies
+a LIF neuron to decompose $\mathbf{X}$ into high-frequency
+$\mathbf{X}_h$ and residual $\mathbf{X}_l$, then combines them with
+learnable scales and a nonlinear interaction:
 \begin{equation}
 \mathbf{Z}_1
 =
-\mathrm{BN}\!\left(
-\mathrm{Conv}\!\left(
-\alpha_h \mathbf{X}_{h}
-+ \alpha_l \mathbf{X}_{l}
-+ \mathbf{X}\odot\mathbf{X}_{h}
-\right)\right).
+\mathrm{BN}(\mathrm{Conv}(
+\alpha_h\mathbf{X}_h + \alpha_l\mathbf{X}_l
++ \mathbf{X}\odot\mathbf{X}_h)).
 \label{eq:dfrb-g1}
 \end{equation}
-The second group applies spatial high-frequency extraction to
-$\mathbf{Z}_1$ using a PixelShuffle-LIF block
-(\texttt{PixelShuffleLIFBlock}), which spatially rearranges the
-feature map by $2\times$ pixel unshuffling and applies LIF neurons to
-the rearranged spatial-temporal representation, yielding a spatial
-high-frequency component $\mathbf{Z}_{2h}$ and a residual component
-$\mathbf{Z}_{2l}=\mathbf{Z}_1-\mathbf{Z}_{2h}$.
-A learnable scalar cross-scale gate $\sigma(g)$ combines the
-high-frequency responses from both groups:
-\begin{equation}
-\mathbf{Z}_2
-=
-\mathrm{BN}\!\left(
-\mathrm{Conv}\!\left(
-\alpha_h' \mathbf{Z}_{2h}
-+ \alpha_l' \mathbf{Z}_{2l}
-+ \mathbf{Z}_1\odot\mathbf{Z}_{2h}
-+ \sigma(g)\,\mathbf{X}_{h}\odot\mathbf{Z}_{2h}
-\right)\right).
-\label{eq:dfrb-g2}
-\end{equation}
-The gate $\sigma(g)$ is initialized to $g\!=\!0$, so it starts near
-zero and gradually opens as the model learns when cross-group
-high-frequency compensation is beneficial.
-
-After the two cascaded groups, a shortcut connection is added and the
-combined feature passes through a temporal-channel-spatial attention
-module (TCS-Att) followed by the spectral-spatial hybrid attention
-module (\SHAM{}, Section~\ref{sec:framework-sham}):
+Group~2 applies a \texttt{PixelShuffleLIFBlock} to extract spatial
+high-frequency features $\mathbf{Z}_{2h}$ from $\mathbf{Z}_1$ and
+fuses them via a learnable cross-scale gate $\sigma(g)$ initialized
+to zero. After shortcut addition and TCS-Att, \SHAM{} is applied:
 \begin{equation}
 \mathrm{DFRB}(\mathbf{X})
 =
 \SHAM{}\!\left(
-\mathrm{TCS\text{-}Att}\!\left(
-\mathbf{Z}_2 + \mathrm{Conv}(\mathbf{X})
-\right)
+\mathrm{TCS\text{-}Att}(\mathbf{Z}_2 + \mathrm{Conv}(\mathbf{X}))
 \right).
 \label{eq:dfrb}
 \end{equation}
-The ablation study shows that removing the spatial-frequency component
-of \DFRB{} leads to a clear drop in PSNR, confirming that explicit
-dual-frequency modeling is important for thin-cloud and
-complex-texture restoration.
+Ablation B2 shows removing the dual-group structure drops PSNR by
+$-0.516$\,dB (Section~\ref{sec:exp-ablation}).
 
 \subsection{\SHAM{}: Spectral-Spatial Hybrid Attention}
 \label{sec:framework-sham}
 
-Spiking restoration features contain not only channel and spatial
-dimensions, but also a temporal dimension induced by the spike-train
-horizon. Conventional channel or spatial attention modules recalibrate
-only one or two dimensions and do not explicitly exploit the temporal
-responses of SNNs or the frequency structures caused by cloud
-degradation. In cloud removal, thin clouds often introduce low-frequency
-brightness shifts together with high-frequency texture attenuation,
-while thick cloud boundaries create strong spatial discontinuities.
-This motivates attention along both temporal-amplitude and
-frequency-spatial axes.
-
-Given a spike feature volume
-$\mathbf{X}\in\mathbb{R}^{T\times C\times H\times W}$, \SHAM{}
-contains two complementary branches applied in series. The
-temporal-amplitude attention (TAA) branch first pools $\mathbf{X}$
-over spatial dimensions independently for each time step, mixes the
-resulting per-step descriptors through a learned linear projection over
-the temporal axis, and produces per-step scalar weights that are
-broadcast back to modulate each time step:
-\begin{equation}
-\mathbf{X}'
-=
-\mathbf{X}
-+
-\mathbf{X}
-\odot
-\sigma\!\left(
-\mathrm{FC}_{T\to T}\!\left(
-\overline{\mathbf{X}}_{\mathrm{sp}}
-\right)
-\right),
-\label{eq:sham-taa}
-\end{equation}
-where $\overline{\mathbf{X}}_{\mathrm{sp}}$ is the spatial-pooled
-descriptor and the FC layer captures inter-timestep amplitude
-correlations.
-
-The frequency-spatial attention (SFA) branch computes the temporal
-mean of $\mathbf{X}'$, applies a two-dimensional real FFT to obtain
-the magnitude spectrum, and uses a $1\times1$ convolutional MLP to
-selectively weight each spatial frequency component while preserving
-the original phase:
-\begin{equation}
-\mathbf{M}
-=
-\left|
-\mathcal{F}_{\mathrm{rFFT2}}\!\left(
-\overline{\mathbf{X}'}^{(T)}
-\right)
-\right|,
-\label{eq:sham-rfft}
-\end{equation}
-\begin{equation}
-\hat{\mathbf{M}}
-=
-\mathbf{M}
-\odot
-\sigma\!\left(\mathrm{FreqMLP}(\mathbf{M})\right).
-\label{eq:sham-freqmlp}
-\end{equation}
-The modulated spectrum is reconstructed via inverse FFT (iFFT) with
-the original phase restored, and a $7\times7$ spatial convolution
-generates the frequency-spatial attention mask
-$\mathbf{w}_S\in\mathbb{R}^{1\times H\times W}$.
-
-The full \SHAM{} output is computed as a learnable gated residual,
-where the scale $\eta$ is initialized to zero so the module starts as
-an identity mapping:
+\SHAM{} recalibrates spike features along two orthogonal axes.
+Given $\mathbf{X}\in\mathbb{R}^{T\times C\times H\times W}$, the
+temporal-amplitude attention (TAA) branch modulates each time step
+via sigmoid-gated FC mixing over spatial-pooled descriptors:
+$\mathbf{X}' = \mathbf{X} + \mathbf{X}\odot
+\sigma(\mathrm{FC}_{T\to T}(\overline{\mathbf{X}}_\mathrm{sp}))$.
+The frequency-spatial attention (SFA) branch applies
+$\mathrm{rFFT2}$ to the temporal mean of $\mathbf{X}'$, weights
+spectral components via a \texttt{FreqMLP}, reconstructs via iFFT,
+and generates a spatial mask $\mathbf{w}_S$ with a $7\!\times\!7$
+convolution. The full output is a learnable gated residual ($\eta$
+initialized to zero):
 \begin{equation}
 \mathrm{SHAM}(\mathbf{X})
 =
 \mathbf{X}
-+
-\sigma(\eta)
-\left(
-\mathbf{X}'
-\odot
-\mathbf{w}_S
--
-\mathbf{X}
-\right).
++\sigma(\eta)\!\left(\mathbf{X}'\odot\mathbf{w}_S-\mathbf{X}\right).
 \label{eq:sham}
 \end{equation}
-This design allows \OrbitALIF{} to exploit both the temporal response
-patterns of SNNs and the frequency-domain structures of cloud
-contamination. \SHAM{} is embedded at the tail of each \DFRB{} block
-(after TCS-Att) and thus recalibrates the dual-frequency residual
-output before it propagates to the next block.
+\SHAM{} embeds at the tail of each \DFRB{} (after TCS-Att);
+its removal drops PSNR by $-0.597$\,dB (Ablation B1).
 
-\subsection{\AGFM{}: Adaptive Gated Fusion Module}
+\subsection{\AGFM{}: Adaptive Gated Fusion}
 \label{sec:framework-agfm}
 
-Multi-scale restoration backbones need to combine shallow spatial
-details with deeper restoration responses. Direct addition or
-concatenation applies the same fusion rule to every spatial location,
-which is suboptimal for cloud removal. In thin-cloud or clear regions,
-shallow features often contain reliable ground textures and should be
-preserved. In thick-cloud regions, however, shallow features are
-themselves corrupted, and the synthesis-path restoration response
-should dominate.
-
-The adaptive gated fusion module (\AGFM{}) performs content-adaptive
-cross-stage fusion. Let $\mathbf{d}$ denote the upsampled feature from
-the synthesis path and $\mathbf{e}$ the encoder skip feature from the
-analysis path. \AGFM{} concatenates the two features along the channel
-dimension and generates a spatially varying gate through a
-$1\times1$ convolution:
-\begin{equation}
-\boldsymbol{\gamma}
-=
-\sigma\!\left(
-\mathrm{Conv}_{1\times1}
-\!\left(
-[\mathbf{d};\mathbf{e}]_C
-\right)
-\right),
-\label{eq:agfm-gate}
-\end{equation}
-where $[\cdot;\cdot]_C$ denotes channel-wise concatenation and
-$\boldsymbol{\gamma}\in\mathbb{R}^{C\times H\times W}$. The fused
-feature is
+In thick-cloud regions shallow features are corrupted; in thin-cloud
+regions they carry reliable textures. \AGFM{} generates a spatially
+varying gate from the concatenated decoder feature $\mathbf{d}$ and
+encoder skip $\mathbf{e}$, and fuses them as
 \begin{equation}
 \mathbf{f}
 =
 \boldsymbol{\gamma}\odot\mathbf{d}
-+
-(1-\boldsymbol{\gamma})\odot\mathbf{e}.
++(1-\boldsymbol{\gamma})\odot\mathbf{e},\quad
+\boldsymbol{\gamma}=\sigma\!\left(
+\mathrm{Conv}_{1\times1}([\mathbf{d};\mathbf{e}]_C)\right).
 \label{eq:agfm}
 \end{equation}
-The gate allows the model to dynamically select between shallow details
-and deeper restoration responses according to local cloud conditions.
-In \OrbitALIF{}, \AGFM{} is inserted at the first and second
-multi-scale levels only. At the deepest level, the encoder and decoder
-communicate through a direct transition without a separate cross-stage
-fusion module.
+\AGFM{} is inserted at the first and second multi-scale levels;
+the deepest level uses a direct encoder--decoder connection.
 
 \subsection{\SSHB{}: Spectro-Temporal Spike Hyper-Block}
 \label{sec:framework-sshb}
 
-The full-resolution level contains the most detailed spatial
-information and is therefore critical for restoring cloud boundaries,
-thin-cloud textures, and high-frequency ground structures. However,
-full-resolution processing is also the most expensive part of the
-network. A local spiking convolution has limited receptive field, while
-direct global attention would introduce excessive onboard computation.
-The spectro-temporal spike hyper-block (\SSHB{}) is designed to enhance
-full-resolution features by combining temporal expansion,
-spike-convolutional refinement, and frequency-domain spatial mixing.
-
-Given an input spike feature $\mathbf{X}\in\mathbb{R}^{T\times C\times H\times W}$,
-\SSHB{} first applies \DFRB{} to extract dual-frequency residual
-responses with embedded frequency-spatial attention. The resulting
-feature is then processed by a $2\times$ PixelUnshuffle operation,
-which rearranges the spatial grid into a richer temporal-channel
-context by expanding the effective time horizon from $T$ to $T\cdot r^2$
-(with $r=2$, this yields $16$ steps at half resolution). A LIF node
-applies event-driven gating on the expanded representation, and a
-temporal-channel attention module (TimeAttention via 3D pooling and
-shared MLP) recalibrates inter-step importance. A 3D convolution then
-compresses the $T\cdot r^2$-step representation back to $T$ steps.
-
-After temporal compression, two spike-convolutional refinement blocks
-(each: LIF$\to$Conv$\to$BN$\to$TCS-Att) further process the
-reduced-resolution features. The refined feature is then upsampled
-back to the original spatial resolution and combined with the skip
-feature produced by the initial \DFRB{} (before PixelUnshuffle) through
-direct addition. A final TCS-Att head jointly modulates temporal,
-channel, and spatial responses. Finally, a frequency-spectral
-enhancement block (FSE) applies a lightweight MLP in the 2D FFT
-magnitude domain while preserving phase, providing global-receptive-field
-feature mixing in $O(N\log N)$ without dense spatial attention.
-
-The overall \SSHB{} dataflow is:
+\SSHB{} enhances full-resolution features through temporal expansion,
+spike-convolutional refinement, and FFT-domain spatial mixing.
+Starting from $\mathbf{X}$, \DFRB{} extracts dual-frequency responses;
+a $2\!\times$ PixelUnshuffle (PU$_2$) expands the time horizon from
+$T$ to $T\!\cdot\!r^2\!=\!16$ steps at half resolution; a LIF node
+and temporal-channel attention module (TCAM) recalibrate the expanded
+representation; a 3D convolution compresses back to $T$ steps; two
+spike-convolutional Refine blocks follow; the result is upsampled and
+skip-added, then passed through TCS-Att and an FFT-domain FreqMLP
+(FSE), yielding global receptive field in $O(N\log N)$:
 \begin{equation}
 \mathrm{SSHB}(\mathbf{X})
 =
-\mathrm{FSE}
-\circ
-\mathrm{TCS\text{-}Att}
-\circ
-(\cdot + \mathrm{DFRB}(\mathbf{X}))
-\circ
-\mathrm{Refine}
-\circ
-\mathrm{TCAM}
-\circ
-\mathrm{PU}_{2}
-\circ
-\mathrm{DFRB}(\mathbf{X}),
+\mathrm{FSE}\circ\mathrm{TCS\text{-}Att}\circ
+(\cdot{+}\mathrm{DFRB}(\mathbf{X}))
+\circ\mathrm{Refine}\circ\mathrm{TCAM}\circ\mathrm{PU}_{2}\circ\mathrm{DFRB}(\mathbf{X}).
 \label{eq:sshb}
 \end{equation}
-where $\mathrm{PU}_{2}$ denotes $2\times$ PixelUnshuffle followed by
-LIF and temporal compression, $\mathrm{TCAM}$ denotes the TimeAttention
-module, $\mathrm{Refine}$ denotes the two spike-convolutional refinement
-blocks, and $(\cdot + \mathrm{DFRB}(\mathbf{X}))$ denotes the skip
-addition before the final TCS-Att head. \SSHB{} is placed at the
-full-resolution level where pixel-level details are most important.
-Although each \SSHB{} block is more expressive than a local residual
-block, its cost is controlled by 5QS-LIF sparsity and FFT-based
-spatial mixing.
 
 \subsection{Training Objective}
 \label{sec:framework-loss}
 
-\OrbitALIF{} is trained end-to-end using a composite reconstruction
-objective that combines a Charbonnier penalty with a structural
-similarity term. Given the prediction $\hat{\mathbf{y}}$ and the
-cloud-free reference image $\mathbf{y}$, the loss is defined as
+\OrbitALIF{} is trained with a composite Charbonnier\,+\,SSIM loss:
 \begin{equation}
 \ell(\hat{\mathbf{y}},\mathbf{y})
 =
-\frac{1}{|\Omega|}
-\sum_{p\in\Omega}
-\sqrt{
-(\hat{\mathbf{y}}_p-\mathbf{y}_p)^2+\varepsilon^2
-}
-+
-\lambda
-\left(
-1-\mathrm{SSIM}(\hat{\mathbf{y}},\mathbf{y})
-\right),
+\frac{1}{|\Omega|}\!\sum_{p\in\Omega}
+\sqrt{(\hat{\mathbf{y}}_p-\mathbf{y}_p)^2+\varepsilon^2}
++\lambda\!\left(1-\mathrm{SSIM}(\hat{\mathbf{y}},\mathbf{y})\right),
 \label{eq:loss}
 \end{equation}
-where $\Omega$ is the pixel set, $\varepsilon=10^{-3}$, and
-$\lambda=0.1$. The Charbonnier term acts as a smooth robust
-reconstruction loss and reduces the influence of local outliers caused
-by severe cloud occlusion. The SSIM term encourages structural
-consistency, helping the model preserve cloud boundaries, textures, and
-local image structures. With $\lambda=0.1$, the Charbonnier term
-dominates the optimization throughout training.
-
-\subsection{Decentralized Constellation Training Pipeline}
-\label{sec:framework-fl}
-
-Section~\ref{sec:sysmodel-procedure} defines the mathematical procedure
-of decentralized onboard training. This subsection specifies the
-implementation choices used to instantiate that procedure for
-\OrbitALIF{}.
-
-First, \OrbitALIF{} adopts a \textsc{FedBN}-style parameter handling
-protocol to address source-level feature heterogeneity. Under the
-source-level Dirichlet partition, different satellites may observe
-different cloud-density regimes, which induces distinct feature
-statistics and spike activation patterns. Averaging BN parameters
-globally would force these heterogeneous distributions into a single
-normalization state and may destabilize both intermediate features and
-spike firing rates. Therefore, all BN-tagged parameters are kept local
-and excluded from both intra-plane aggregation and inter-plane Gossip.
-This includes BN affine parameters $(\gamma,\beta)$, running means,
-running variances, batch counters, and the corresponding TDBN and
-TemporalBN parameters used by spiking modules. Only the shared non-BN
-restoration parameters — convolutional weights, biases, and
-non-BN attention parameters — are exchanged across satellites. Local
-training in step S1 of each round then naturally refines the BN
-statistics of each satellite on its own data, so that BN normalization
-adapts to the local source distribution without cross-satellite
-interference.
-
-Second, inter-plane communication is implemented by single-step Gossip
-mixing over a fixed chain topology. Compared with a ground-server-based
-parameter aggregation scheme, Gossip better matches the intermittent
-connectivity and sparse inter-plane topology of LEO constellations.
-Each orbital plane exchanges shared non-BN parameters only with its
-neighbors according to the doubly stochastic mixing matrix $W$ defined
-in Section~\ref{sec:sysmodel-procedure}. \textsc{FedBN}~\cite{ref:fedbn}
-and Gossip averaging~\cite{ref:gossip-boyd} are existing methods; they
-are not proposed here as new federated optimization algorithms. Rather,
-they are adopted as system-level training strategies that are adapted
-to the constellation communication topology and source-level
-heterogeneous cloud-removal data.
-
-Third, communication accounting is performed only over shared non-BN
-parameters. For the $2.30$\,M onboard deployment variant, inter-plane
-Gossip transfers the non-BN parameter subset, with each 32-bit
-floating-point state transfer requiring approximately
-$4\,d_{\mathrm{shared}}$ bytes, where $d_{\mathrm{shared}}$ is the
-number of shared parameters. Since the inter-plane topology is a
-fixed chain, the per-round cross-plane traffic scales with the number
-of active inter-plane edges and the shared parameter count. The
-concrete per-round and cumulative communication costs are reported in
-Section~\ref{sec:exp-federated}.
-
-Overall, the decentralized training pipeline has three properties: raw
-cloudy observations remain local to satellites, BN-tagged parameters
-preserve local feature calibration under source-level heterogeneity,
-and shared restoration parameters are collaboratively updated through
-intra-plane aggregation and inter-plane Gossip mixing. This allows
-\OrbitALIF{} to train onboard without uploading raw observations or
-relying on a centralized ground parameter server.
+with $\varepsilon\!=\!10^{-3}$ and $\lambda\!=\!0.1$. Charbonnier
+handles cloud-occlusion outliers robustly; SSIM preserves structural
+consistency and cloud-boundary sharpness. The constellation training
+pipeline follows Section~\ref{sec:sysmodel}: all BN-tagged parameters
+are kept local; only non-BN weights are exchanged.
+\textsc{FedBN}~\cite{ref:fedbn} and Gossip~\cite{ref:gossip-boyd}
+are adopted as system-level strategies suited to the constellation
+topology; they are not proposed as new FL algorithms.
 
 % =====================================================================
 % Section IV: Experiments
@@ -1073,58 +420,23 @@ relying on a centralized ground parameter server.
 
 \subsection{Experimental Setup}\label{sec:exp-setup}
 
-\textbf{Datasets.}\;\;We use the publicly available CUHK-CR
-benchmark~\cite{ref:cuhkcr}, which contains paired cloudy and
-cloud-free Sentinel-2 RGB tiles at high resolution. CUHK-CR1 contains
-thin-cloud scenes and CUHK-CR2 contains thick-cloud scenes; the two
-splits define the two source domains $\{1,2\}$ used by the
-source-level Dirichlet partition in
-Section~\ref{sec:sysmodel-dirichlet}. Following the original benchmark
-protocol, all training and evaluation are performed on
-$64\!\times\!64$ random crops, with PSNR and SSIM evaluated on the
-held-out test split using $64\!\times\!64$ centre patches.
+\textbf{Datasets.} CUHK-CR~\cite{ref:cuhkcr} provides paired
+cloudy/clear Sentinel-2 RGB tiles. CR1 (thin cloud) and CR2 (thick
+cloud) define the two Dirichlet source domains. All runs use
+$64\!\times\!64$ random crops for training and centre-patch evaluation.
 
-\textbf{Models.}\;\;Three matched-protocol backbones are evaluated.
-\OrbitALIF{}-SNN is the spiking variant described in
-Section~\ref{sec:framework-arch} with five-level quantized spikes,
-TDBN normalization, and $T\!=\!4$ spike steps. \OrbitALIF{}-ANN keeps
-the identical dataflow but replaces every \FQS{}-LIF activation with
-ReLU and uses standard 2D BatchNorm; this isolates the effect of
-spiking computation from the effect of architectural choices.
-PlainUNet is a parameter-light vanilla U-Net baseline ($1.31$\,M
-parameters) commonly used for cloud-removal ablation. Unless
-otherwise stated, the spiking variant uses base channel width
-$C\!=\!24$ ($\approx\!2.30$\,M parameters) and is referred to as the
-\emph{onboard deployment variant}.
+\textbf{Models.} Three matched-protocol backbones share the same
+aggregation pipeline. \OrbitALIF{}-SNN: \FQS{}-LIF, TDBN, $T\!=\!4$,
+$C\!=\!24$ ($2.30$\,M). \OrbitALIF{}-ANN: identical dataflow with
+ReLU\,+\,BN in place of \FQS{}-LIF\,+\,TDBN. PlainUNet: vanilla
+U-Net ($1.31$\,M) ablation baseline.
 
-\textbf{Optimization.}\;\;All centralized models are trained for
-$600$ epochs with AdamW, base learning rate $10^{-3}$, cosine decay
-to $10^{-7}$, $3$-epoch linear warmup, batch size $4$, and gradient
-clipping at $\|g\|_2\!\le\!1$. The composite reconstruction loss in
-\eqref{eq:loss} uses $\varepsilon\!=\!10^{-3}$ and
-$\lambda\!=\!0.1$. PlainUNet uses the same optimizer settings but
-converges in $400$ epochs. Ablation runs (Section~\ref{sec:exp-ablation})
-use $300$ epochs to keep training cost tractable.
-
-\textbf{Federated training.}\;\;We instantiate the constellation of
-Section~\ref{sec:sysmodel-constellation} with $N\!=\!5$ orbital planes
-and $K\!=\!10$ satellites per plane ($NK\!=\!50$ in total). Federated
-training proceeds for $R\!=\!200$ communication rounds. Within each
-round, every satellite performs $E\!=\!2$ AdamW local epochs over its
-Dirichlet-partitioned data shard, intra-plane ring AllReduce uses
-$2$ averaging passes, and inter-plane Gossip uses single-step mixing
-over a fixed chain mixing matrix~$W$. The default Dirichlet
-concentration is $\alpha\!=\!0.1$.
-
-\textbf{Hardware and metrics.}\;\;All training and inference experiments
-use a single NVIDIA RTX-class GPU. We report PSNR (dB) and SSIM
-averaged over the held-out CUHK-CR1 / CR2 test splits. For the
-federated runs we additionally report cumulative inter-plane
-communication volume in megabytes and total wall time in hours. For
-energy analysis (Section~\ref{sec:exp-energy}) we use forward hooks to
-measure per-layer MAC counts and non-zero activation rates on
-$32$ test patches and combine these measurements with literature
-per-operation energy constants.
+\textbf{Training.} Centralized: $600$ epochs, AdamW lr\,$10^{-3}$
+cosine$\to$\,$10^{-7}$, $3$-epoch warmup, batch~$4$, gradient clip
+$\|g\|_2\!\le\!1$. Ablations: $300$ epochs. Federated: $R\!=\!200$
+rounds, $E\!=\!2$ local epochs, $\alpha\!=\!0.1$. Metrics: PSNR,
+SSIM, cumulative inter-plane comm.\ (MB), wall time (h). Energy
+analysis uses forward hooks on $32$ CR1 test patches.
 
 \subsection{Centralized Cloud-Removal Performance}\label{sec:exp-centralized}
 
@@ -1161,32 +473,10 @@ PlainUNet                  & $1.31$ & $23.040$           & $0.7400$           & 
 \end{tabular}
 \end{table}
 
-\begin{figure}[!htbp]
-  \centering
-  \includegraphics[width=\columnwidth]{fig7_centralized_4panel.pdf}
-  \caption{Centralized training dynamics on CUHK-CR1 (top row) and
-  CUHK-CR2 (bottom row). \OrbitALIF{} (blue) reaches a higher PSNR
-  plateau than the compact PlainUNet baseline (orange) on both
-  datasets despite operating with sparse spike activations. Loss
-  panels (a) and (c) use a logarithmic ordinate.}
-  \label{fig:fig7-centralized-4panel}
-\end{figure}
-
-The centralized advantage is architectural rather than capacity-driven:
-\OrbitALIF{} uses $2.30$\,M parameters versus $1.31$\,M for PlainUNet,
-but the $+0.50$\,dB CR1 gain stems from the four \OrbitALIF{}
-building blocks rather than from raw parameter count, as the
-ablation study in Section~\ref{sec:exp-ablation} confirms by
-selectively disabling them.
-
-\textbf{Capacity-scaled variant.}\;\;For completeness, we additionally
-instantiate \OrbitALIF{} at $C\!=\!56$ ($\approx\!14$\,M parameters)
-on the same dataflow to study the quality--computation trade-off.
-A detailed comparison against full-capacity restoration baselines
-(SpA-GAN, MemoryNet, Restormer, DDFR) is deferred to the extended
-version because the corresponding centralized runs are still in
-progress at submission time and the focus of this paper is the
-onboard deployment regime.
+The $+0.50$\,dB CR1 gain is architectural rather than capacity-driven
+(Section~\ref{sec:exp-ablation}). A capacity-scaled variant at
+$C\!=\!56$ (${\approx}\,14$\,M) is reserved for comparison against
+full-capacity baselines in the extended version.
 
 \subsection{Component Ablation}\label{sec:exp-ablation}
 
@@ -1240,7 +530,7 @@ PlainUNet (C2, ref.)      & $1.31$ & $24.872$         & $-0.502$    & $0.7683$  
 largest single-component PSNR drop to \SHAM{} ($-0.597$\,dB),
 followed by the dual-group \DFRB{} ($-0.516$\,dB) and \FQS{}
 ($-0.302$\,dB). The ranking is consistent with the design rationale
-of Section~\ref{sec:framework-arch}. \SHAM{} contributes orthogonal
+of Section~\ref{sec:framework}. \SHAM{} contributes orthogonal
 recalibration along the temporal-amplitude and frequency-spatial
 axes that no other component recovers. The dual-group \DFRB{}
 provides the spatial high-frequency path that complements the
@@ -1270,7 +560,7 @@ a load-bearing component.
 
 This subsection evaluates the central system contribution of this
 work: the decentralized \textsc{FedBN}\,+\,Gossip training pipeline of
-Sections~\ref{sec:sysmodel-procedure} and~\ref{sec:framework-fl}. We
+Section~\ref{sec:sysmodel-procedure}. We
 deploy three matched-protocol backbones on the
 $5\!\times\!10\!=\!50$-satellite Walker-Star constellation under
 source-level Dirichlet $\alpha\!=\!0.1$ for $R\!=\!200$ rounds.
@@ -1323,14 +613,9 @@ so individual satellites cannot recover the full encoder
 representation, and per-round Gossip mixing only partially
 compensates over $R\!=\!200$ rounds.
 
-\textbf{Dirichlet partition statistics.}\;\;The actual per-client
-sample-count vector recorded by the partition log includes
-$30/50\!=\!60\,\%$ floor clients (five tiles each) and three heavy
-clients with $\{117, 118, 118\}$ samples; the remaining $17$ clients
-are spread between these two extremes. The same $\alpha\!=\!0.1$
-configuration is used for all federated runs in
-Table~\ref{tab:federated}, so any backbone-level differences cannot
-be attributed to differences in the data partition.
+The $\alpha\!=\!0.1$ partition is identical across all three backbones
+in Table~\ref{tab:federated}, so any quality gap is attributable to
+the backbone alone.
 
 \subsection{Energy Analysis}\label{sec:exp-energy}
 
@@ -1346,17 +631,6 @@ be attributed to differences in the data partition.
   neuromorphic substrates. Multipliers vs.\ ANN are annotated above
   each bar.}
   \label{fig:energy}
-\end{figure}
-
-\begin{figure}[!htbp]
-  \centering
-  \includegraphics[width=\columnwidth]{fig9_per_layer_spike_rate.pdf}
-  \caption{\OrbitALIF{} per-layer LIF firing rate on CUHK-CR1 test,
-  measured through forward hooks on every LIF / \FQS{} module.
-  Binary LIF layers exhibit $20$\,--\,$70\,\%$ firing; \FQS{}-equipped
-  layers show a higher non-zero floor because four of the five
-  quantization levels are non-zero by construction.}
-  \label{fig:firing-rate}
 \end{figure}
 
 \textbf{Methodology and disclosure.}\;\;Per-image inference energy is
@@ -1390,44 +664,29 @@ do not claim data-independence of the energy estimate; the two
 CUHK-CR distributions are simply close enough to give consistent
 bounds.
 
-\textbf{Per-layer firing rates.}\;\;Figure~\ref{fig:firing-rate}
-visualizes the layer-wise LIF / \FQS{} firing rates on CR1 test
-patches. Binary LIF layers exhibit $20$\,--\,$70\,\%$ firing across
-the analysis path. \FQS{}-equipped layers (notably the
-\texttt{lif\_node} inside \SSHB{}) show a higher non-zero floor,
-because four of the five \FQS{} levels $\{1/4,1/2,3/4,1\}$ are
-non-zero by construction. The firing-rate measurement is the
-empirical witness that spike sparsity is real rather than a
-simulation artefact, and the per-layer non-zero MAC rates that enter
-the energy formula
-$E_{\rm SNN}\!=\!\sum_\ell\mathrm{MAC}_\ell\,r_\ell\,e_{\rm op}$
-are derived from these measurements.
+\textbf{Per-layer firing rates.}\;\;Forward hooks on all LIF and \FQS{}
+modules measure $20$\,--\,$70\,\%$ non-zero activation across the
+analysis path; \FQS{} layers show a higher non-zero floor because
+four of five quantization levels are non-zero by construction. These
+per-layer rates $r_\ell$ directly enter the energy formula
+$E_{\rm SNN}\!=\!\sum_\ell\mathrm{MAC}_\ell\,r_\ell\,e_{\rm op}$.
 
 \subsection{Qualitative Results}\label{sec:exp-qualitative}
 
 \begin{figure}[!htbp]
   \centering
   \includegraphics[width=\columnwidth]{fig3_qualitative_grid.pdf}
-  \caption{Qualitative cloud-removal comparison on four representative
-  CUHK-CR1 test tiles. Columns left-to-right: cloudy input,
-  \OrbitALIF{} (ours), PlainUNet baseline, ground truth. Per-image
-  PSNR is annotated on each restoration cell.}
+  \caption{Qualitative cloud-removal on four CUHK-CR1 test tiles
+  (cloudy input / \OrbitALIF{} / PlainUNet / ground truth).
+  Per-image PSNR annotated on each cell.}
   \label{fig:qualitative}
 \end{figure}
 
-Figure~\ref{fig:qualitative} compares centre-patch restorations on
-four CUHK-CR1 test tiles selected via a deterministic
-cloud-coverage severity score (the L2 distance between cloudy and
-ground-truth pixels), biasing the selection toward harder samples.
-Across all four tiles \OrbitALIF{} recovers texture and colour
-consistency that visibly exceeds PlainUNet, particularly along
-thin-cloud edges where the high-frequency content carried by the
-\DFRB{} spatial path (Section~\ref{sec:framework-dfrb}) is most
-active. The quality gap is concentrated in regions of moderate cloud
-density (\AGFM{} gate $\boldsymbol{\gamma}\!\approx\!0.5$); under
-fully-opaque cloud cover both architectures degrade similarly,
-consistent with the smaller CR2 gain reported in
-Table~\ref{tab:centralized}.
+Figure~\ref{fig:qualitative} shows that \OrbitALIF{} recovers texture
+and colour consistency across all four tiles, particularly along
+thin-cloud edges where the \DFRB{} spatial path is most active.
+The quality gap narrows under fully-opaque cover, consistent with
+the smaller CR2 margin in Table~\ref{tab:centralized}.
 
 % =====================================================================
 % Section V: Conclusion
@@ -1466,21 +725,11 @@ the difficulty of the source-level Dirichlet $\alpha\!=\!0.1$
 partition and frames the federated setting in which the spiking
 backbone is evaluated.
 
-Several directions extend this work. (i) Closing the
-federated-vs-centralized gap, particularly under the spiking
-backbone whose $\alpha$-sensitivity runs are deferred to the
-extended version, by combining \textsc{FedBN}\,+\,Gossip with partial
-participation, momentum aggregation, or learnable inter-plane
-mixing matrices that exploit orbital geometry. (ii) Real-orbit
-validation on neuromorphic substrates (Loihi-2, Speck, Akida) to
-replace the analytic energy bracket with measured power draw under
-realistic on-orbit thermal and power conditions. (iii) Multi-source
-generalization beyond CUHK-CR1\,+\,CR2 (e.g., Sentinel-2 versus
-Landsat-8) with $S\!\geq\!3$ source domains, exercising stronger
-source-level heterogeneity. (iv) Capacity scaling of \OrbitALIF{} to
-the $14$\,M variant and a full comparison against high-capacity
-restoration baselines, characterising the quality--computation
-trade-off across the full deployment spectrum.
+Future directions include: (i) closing the federated-vs-centralized
+gap via partial participation, momentum aggregation, or
+orbital-geometry-aware mixing matrices; and (ii) hardware validation
+on neuromorphic substrates (Loihi-2, Speck, Akida) to replace the
+analytic energy bracket with measured on-orbit power draw.
 
 % =====================================================================
 % Bibliography
