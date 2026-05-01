@@ -536,9 +536,535 @@ and source-level heterogeneity that may arise in onboard cloud-removal
 scenarios. Sensitivity to $\alpha$ is reported in
 Section~\ref{sec:exp-federated}.
 
-% Section III: Framework
+% =====================================================================
+% Section III: The ORBITALIF Framework
+% =====================================================================
 \section{The \OrbitALIF{} Framework}\label{sec:framework}
-\textit{[Section to be written by the user.]}
+
+The \OrbitALIF{} framework consists of two co-designed components:
+an attention-enhanced LIF restoration backbone
+(Section~\ref{sec:framework-arch}) and a decentralized constellation
+training pipeline (Section~\ref{sec:framework-fl}). Figure~\ref{fig:overview}
+illustrates the overall system. On each satellite, the restoration
+backbone takes a cloudy RGB image tile
+$\mathbf{c}\in\mathbb{R}^{B\times 3\times H\times W}$ as input and
+predicts a cloud-free image $\hat{\mathbf{y}}$ through a sequence of
+spiking restoration modules. Across the constellation, satellites
+collaboratively train the shared restoration parameters through
+intra-plane aggregation and inter-plane Gossip mixing, while all
+BN-tagged parameters are kept local following the \textsc{FedBN}
+protocol described in Section~\ref{sec:sysmodel-procedure}.
+
+\begin{figure*}[!htbp]
+  \centering
+  \includegraphics[width=\textwidth]{fig1.pdf}
+  \caption{\OrbitALIF{} system overview. \textbf{(a)} Single-satellite
+  restoration model: a three-level multi-scale spiking restoration
+  backbone with full-resolution spectro-temporal spike enhancement,
+  deeper dual-frequency residual modeling, adaptive gated cross-stage
+  feature fusion, and frequency-spatial attention. The backbone predicts
+  a residual cloud-removal image that is added to the cloudy input.
+  \textbf{(b)} Decentralized $5\times10$ Walker-Star constellation:
+  satellites perform intra-plane aggregation over quasi-stationary
+  intra-plane ISLs and inter-plane Gossip mixing over the chain topology.
+  All BN-tagged parameters remain local and are excluded from both
+  aggregation stages.}
+  \label{fig:overview}
+\end{figure*}
+
+\subsection{\OrbitALIF{} Restoration Backbone}
+\label{sec:framework-arch}
+
+\OrbitALIF{} adopts a three-level multi-scale spiking restoration
+backbone designed for onboard optical cloud removal. The shallow level
+preserves the full $H\times W$ spatial resolution to retain cloud
+boundaries, thin-cloud textures, and high-frequency ground details.
+The two deeper levels progressively reduce the spatial resolution by
+PixelUnshuffle while increasing the feature width, allowing the model
+to capture larger-context cloud structures under compact computation.
+A symmetric synthesis path reconstructs the clean image from the
+multi-scale spike features, and adaptive gated cross-stage fusion is
+used to combine shallow spatial details with deeper restoration
+responses.
+
+Let $T$ denote the spike-train time horizon inside a single forward
+pass. In this work, all spiking modules use $T=4$, which is distinct
+from the federated communication-round count $R$ in
+Section~\ref{sec:sysmodel-procedure}. Given a cloudy input image
+$\mathbf{c}$, the backbone first maps it into multi-scale spike
+features through the analysis path. The synthesis path then produces
+a residual restoration image, which is added to the input through a
+global residual connection:
+\begin{equation}
+\hat{\mathbf{y}}
+=
+\mathbf{c}
++
+\mathrm{Conv}
+\left(
+\overline{
+\mathrm{Synth}
+\left(
+\mathrm{Anal}(\mathbf{c})
+\right)
+}^{(T)}
+\right),
+\label{eq:globalresidual}
+\end{equation}
+where $\mathrm{Anal}(\cdot)$ and $\mathrm{Synth}(\cdot)$ denote the
+analysis and synthesis paths, respectively, and
+$\overline{(\cdot)}^{(T)}$ denotes temporal averaging over the
+$T=4$ spike steps.
+
+The deployment variant sets the base channel width to $C=24$,
+resulting in approximately $2.30$\,M trainable parameters. This compact
+configuration is used for centralized cloud-removal experiments,
+ablation studies, energy analysis, and decentralized federated
+training. We also instantiate a capacity-scaled variant with
+$C=56$ and approximately $14$\,M parameters. This larger variant shares
+the same dataflow and is used to study restoration scalability and the
+quality--computation trade-off, rather than to claim an unconditional
+cloud-removal SOTA result.
+
+The backbone is constructed from five main components. The five-level
+quantized spike (\FQS{}) activation improves the representation
+granularity of sparse LIF dynamics. The dual-frequency residual block
+(\DFRB{}) captures complementary temporal and spatial-frequency
+responses through two cascaded processing groups, with frequency-spatial
+attention applied at the tail of each block. The spectral-spatial
+hybrid attention module (\SHAM{}) recalibrates spike features along
+temporal and frequency-spatial dimensions and is embedded within each
+\DFRB{}. The adaptive gated fusion module (\AGFM{}) performs
+content-adaptive cross-stage feature fusion at the first and second
+multi-scale levels. Finally, the spectro-temporal spike hyper-block
+(\SSHB{}) enhances full-resolution features through temporal expansion,
+spike-convolutional refinement, and frequency-domain spatial mixing.
+These components are detailed in the following subsections.
+
+\subsection{\FQS{}: Five-Level Quantized Spike}
+\label{sec:framework-5qs}
+
+Binary LIF spikes provide sparse event-driven computation, but they
+restrict each time step to a one-bit activation state. This is overly
+restrictive for pixel-level cloud removal, where intermediate features
+must preserve weak color gradients, thin-cloud transitions, and
+fine-grained texture variations. Replacing spikes with continuous
+ANN-style activations would recover a richer dynamic range, but would
+also weaken the sparse operation pattern that makes SNNs attractive
+for onboard inference.
+
+To balance activation expressiveness and event-driven sparsity,
+\OrbitALIF{} introduces the five-level quantized spike (\FQS{})
+activation. Instead of emitting a binary spike $o_t\in\{0,1\}$, a
+\FQS{} neuron clamps the membrane potential $u_t$ to $[0,4]$, rounds
+to the nearest integer, and normalizes by 4:
+\begin{equation}
+o_t
+=
+\frac{
+\mathrm{round}\!\left(\mathrm{clamp}(u_t,\,0,\,4)\right)
+}{4}
+\;\in\;
+\left\{0,\,\tfrac{1}{4},\,\tfrac{1}{2},\,\tfrac{3}{4},\,1\right\}.
+\label{eq:5qs-forward}
+\end{equation}
+A synaptic operation is counted only when $o_t>0$, so the activation
+remains event-driven while providing five discrete non-negative
+amplitude levels above the silent state. In this sense, \FQS{} improves
+per-step representation granularity without reverting to dense
+continuous ANN activations.
+
+The quantization in \eqref{eq:5qs-forward} is non-differentiable.
+During training, we use a straight-through rectangular surrogate
+gradient over the active quantization range $[0,4]$:
+\begin{equation}
+\frac{\partial o_t}{\partial u_t}
+\approx
+\frac{1}{4}\cdot
+\mathbb{1}\bigl\{0\le u_t\le 4\bigr\}.
+\label{eq:5qs-surrogate}
+\end{equation}
+This surrogate passes scaled gradients only within the effective
+five-level activation window and stabilizes the optimization of
+multi-level quantized spikes. In our ablation study, replacing binary
+spikes with \FQS{} consistently improves cloud-removal fidelity,
+indicating that multi-level spike amplitudes are important for
+restoring subtle cloud and texture details.
+
+\subsection{\DFRB{}: Dual-Frequency Residual Block}
+\label{sec:framework-dfrb}
+
+Optical cloud removal requires two complementary types of information:
+temporal spike responses that describe cloud boundary transitions
+across the $T$-step spike train, and spatial high-frequency responses
+that preserve vegetation texture, urban grids, and fine-grained ground
+details. A single local spiking convolution tends to emphasize only
+one part of this spectrum. As a result, the model may recover broad
+cloud contours while losing fine textures, or preserve local textures
+while failing to model temporally diffuse cloud structures.
+
+The dual-frequency residual block (\DFRB{}) is designed to capture
+these complementary responses within a sparse spiking dataflow.
+Rather than using two independent parallel branches, \DFRB{}
+consists of two cascaded processing groups applied sequentially.
+Figure~\ref{fig:overview}(c) schematically illustrates the dual-frequency
+information flow; the two groups are applied sequentially in the
+actual implementation.
+
+The first group extracts temporal spike responses. Given the input
+feature $\mathbf{X}$, a standard LIF neuron separates it into a
+high-frequency temporal component $\mathbf{X}_{h}$ and a residual
+low-frequency component $\mathbf{X}_{l}=\mathbf{X}-\mathbf{X}_{h}$.
+These are combined with learnable scales $\alpha_h,\alpha_l$ and a
+nonlinear interaction term before being passed through a convolutional
+layer and BN:
+\begin{equation}
+\mathbf{Z}_1
+=
+\mathrm{BN}\!\left(
+\mathrm{Conv}\!\left(
+\alpha_h \mathbf{X}_{h}
++ \alpha_l \mathbf{X}_{l}
++ \mathbf{X}\odot\mathbf{X}_{h}
+\right)\right).
+\label{eq:dfrb-g1}
+\end{equation}
+The second group applies spatial high-frequency extraction to
+$\mathbf{Z}_1$ using a PixelShuffle-LIF block
+(\texttt{PixelShuffleLIFBlock}), which spatially rearranges the
+feature map by $2\times$ pixel unshuffling and applies LIF neurons to
+the rearranged spatial-temporal representation, yielding a spatial
+high-frequency component $\mathbf{Z}_{2h}$ and a residual component
+$\mathbf{Z}_{2l}=\mathbf{Z}_1-\mathbf{Z}_{2h}$.
+A learnable scalar cross-scale gate $\sigma(g)$ combines the
+high-frequency responses from both groups:
+\begin{equation}
+\mathbf{Z}_2
+=
+\mathrm{BN}\!\left(
+\mathrm{Conv}\!\left(
+\alpha_h' \mathbf{Z}_{2h}
++ \alpha_l' \mathbf{Z}_{2l}
++ \mathbf{Z}_1\odot\mathbf{Z}_{2h}
++ \sigma(g)\,\mathbf{X}_{h}\odot\mathbf{Z}_{2h}
+\right)\right).
+\label{eq:dfrb-g2}
+\end{equation}
+The gate $\sigma(g)$ is initialized to $g\!=\!0$, so it starts near
+zero and gradually opens as the model learns when cross-group
+high-frequency compensation is beneficial.
+
+After the two cascaded groups, a shortcut connection is added and the
+combined feature passes through a temporal-channel-spatial attention
+module (TCS-Att) followed by the spectral-spatial hybrid attention
+module (\SHAM{}, Section~\ref{sec:framework-sham}):
+\begin{equation}
+\mathrm{DFRB}(\mathbf{X})
+=
+\SHAM{}\!\left(
+\mathrm{TCS\text{-}Att}\!\left(
+\mathbf{Z}_2 + \mathrm{Conv}(\mathbf{X})
+\right)
+\right).
+\label{eq:dfrb}
+\end{equation}
+The ablation study shows that removing the spatial-frequency component
+of \DFRB{} leads to a clear drop in PSNR, confirming that explicit
+dual-frequency modeling is important for thin-cloud and
+complex-texture restoration.
+
+\subsection{\SHAM{}: Spectral-Spatial Hybrid Attention}
+\label{sec:framework-sham}
+
+Spiking restoration features contain not only channel and spatial
+dimensions, but also a temporal dimension induced by the spike-train
+horizon. Conventional channel or spatial attention modules recalibrate
+only one or two dimensions and do not explicitly exploit the temporal
+responses of SNNs or the frequency structures caused by cloud
+degradation. In cloud removal, thin clouds often introduce low-frequency
+brightness shifts together with high-frequency texture attenuation,
+while thick cloud boundaries create strong spatial discontinuities.
+This motivates attention along both temporal-amplitude and
+frequency-spatial axes.
+
+Given a spike feature volume
+$\mathbf{X}\in\mathbb{R}^{T\times C\times H\times W}$, \SHAM{}
+contains two complementary branches applied in series. The
+temporal-amplitude attention (TAA) branch first pools $\mathbf{X}$
+over spatial dimensions independently for each time step, mixes the
+resulting per-step descriptors through a learned linear projection over
+the temporal axis, and produces per-step scalar weights that are
+broadcast back to modulate each time step:
+\begin{equation}
+\mathbf{X}'
+=
+\mathbf{X}
++
+\mathbf{X}
+\odot
+\sigma\!\left(
+\mathrm{FC}_{T\to T}\!\left(
+\overline{\mathbf{X}}_{\mathrm{sp}}
+\right)
+\right),
+\label{eq:sham-taa}
+\end{equation}
+where $\overline{\mathbf{X}}_{\mathrm{sp}}$ is the spatial-pooled
+descriptor and the FC layer captures inter-timestep amplitude
+correlations.
+
+The frequency-spatial attention (SFA) branch computes the temporal
+mean of $\mathbf{X}'$, applies a two-dimensional real FFT to obtain
+the magnitude spectrum, and uses a $1\times1$ convolutional MLP to
+selectively weight each spatial frequency component while preserving
+the original phase:
+\begin{equation}
+\mathbf{M}
+=
+\left|
+\mathcal{F}_{\mathrm{rFFT2}}\!\left(
+\overline{\mathbf{X}'}^{(T)}
+\right)
+\right|,
+\label{eq:sham-rfft}
+\end{equation}
+\begin{equation}
+\hat{\mathbf{M}}
+=
+\mathbf{M}
+\odot
+\sigma\!\left(\mathrm{FreqMLP}(\mathbf{M})\right).
+\label{eq:sham-freqmlp}
+\end{equation}
+The modulated spectrum is reconstructed via inverse FFT (iFFT) with
+the original phase restored, and a $7\times7$ spatial convolution
+generates the frequency-spatial attention mask
+$\mathbf{w}_S\in\mathbb{R}^{1\times H\times W}$.
+
+The full \SHAM{} output is computed as a learnable gated residual,
+where the scale $\eta$ is initialized to zero so the module starts as
+an identity mapping:
+\begin{equation}
+\mathrm{SHAM}(\mathbf{X})
+=
+\mathbf{X}
++
+\sigma(\eta)
+\left(
+\mathbf{X}'
+\odot
+\mathbf{w}_S
+-
+\mathbf{X}
+\right).
+\label{eq:sham}
+\end{equation}
+This design allows \OrbitALIF{} to exploit both the temporal response
+patterns of SNNs and the frequency-domain structures of cloud
+contamination. \SHAM{} is embedded at the tail of each \DFRB{} block
+(after TCS-Att) and thus recalibrates the dual-frequency residual
+output before it propagates to the next block.
+
+\subsection{\AGFM{}: Adaptive Gated Fusion Module}
+\label{sec:framework-agfm}
+
+Multi-scale restoration backbones need to combine shallow spatial
+details with deeper restoration responses. Direct addition or
+concatenation applies the same fusion rule to every spatial location,
+which is suboptimal for cloud removal. In thin-cloud or clear regions,
+shallow features often contain reliable ground textures and should be
+preserved. In thick-cloud regions, however, shallow features are
+themselves corrupted, and the synthesis-path restoration response
+should dominate.
+
+The adaptive gated fusion module (\AGFM{}) performs content-adaptive
+cross-stage fusion. Let $\mathbf{d}$ denote the upsampled feature from
+the synthesis path and $\mathbf{e}$ the encoder skip feature from the
+analysis path. \AGFM{} concatenates the two features along the channel
+dimension and generates a spatially varying gate through a
+$1\times1$ convolution:
+\begin{equation}
+\boldsymbol{\gamma}
+=
+\sigma\!\left(
+\mathrm{Conv}_{1\times1}
+\!\left(
+[\mathbf{d};\mathbf{e}]_C
+\right)
+\right),
+\label{eq:agfm-gate}
+\end{equation}
+where $[\cdot;\cdot]_C$ denotes channel-wise concatenation and
+$\boldsymbol{\gamma}\in\mathbb{R}^{C\times H\times W}$. The fused
+feature is
+\begin{equation}
+\mathbf{f}
+=
+\boldsymbol{\gamma}\odot\mathbf{d}
++
+(1-\boldsymbol{\gamma})\odot\mathbf{e}.
+\label{eq:agfm}
+\end{equation}
+The gate allows the model to dynamically select between shallow details
+and deeper restoration responses according to local cloud conditions.
+In \OrbitALIF{}, \AGFM{} is inserted at the first and second
+multi-scale levels only. At the deepest level, the encoder and decoder
+communicate through a direct transition without a separate cross-stage
+fusion module.
+
+\subsection{\SSHB{}: Spectro-Temporal Spike Hyper-Block}
+\label{sec:framework-sshb}
+
+The full-resolution level contains the most detailed spatial
+information and is therefore critical for restoring cloud boundaries,
+thin-cloud textures, and high-frequency ground structures. However,
+full-resolution processing is also the most expensive part of the
+network. A local spiking convolution has limited receptive field, while
+direct global attention would introduce excessive onboard computation.
+The spectro-temporal spike hyper-block (\SSHB{}) is designed to enhance
+full-resolution features by combining temporal expansion,
+spike-convolutional refinement, and frequency-domain spatial mixing.
+
+Given an input spike feature $\mathbf{X}\in\mathbb{R}^{T\times C\times H\times W}$,
+\SSHB{} first applies \DFRB{} to extract dual-frequency residual
+responses with embedded frequency-spatial attention. The resulting
+feature is then processed by a $2\times$ PixelUnshuffle operation,
+which rearranges the spatial grid into a richer temporal-channel
+context by expanding the effective time horizon from $T$ to $T\cdot r^2$
+(with $r=2$, this yields $16$ steps at half resolution). A LIF node
+applies event-driven gating on the expanded representation, and a
+temporal-channel attention module (TimeAttention via 3D pooling and
+shared MLP) recalibrates inter-step importance. A 3D convolution then
+compresses the $T\cdot r^2$-step representation back to $T$ steps.
+
+After temporal compression, two spike-convolutional refinement blocks
+(each: LIF$\to$Conv$\to$BN$\to$TCS-Att) further process the
+reduced-resolution features. The refined feature is then upsampled
+back to the original spatial resolution and combined with the skip
+feature produced by the initial \DFRB{} (before PixelUnshuffle) through
+direct addition. A final TCS-Att head jointly modulates temporal,
+channel, and spatial responses. Finally, a frequency-spectral
+enhancement block (FSE) applies a lightweight MLP in the 2D FFT
+magnitude domain while preserving phase, providing global-receptive-field
+feature mixing in $O(N\log N)$ without dense spatial attention.
+
+The overall \SSHB{} dataflow is:
+\begin{equation}
+\mathrm{SSHB}(\mathbf{X})
+=
+\mathrm{FSE}
+\circ
+\mathrm{TCS\text{-}Att}
+\circ
+(\cdot + \mathrm{DFRB}(\mathbf{X}))
+\circ
+\mathrm{Refine}
+\circ
+\mathrm{TCAM}
+\circ
+\mathrm{PU}_{2}
+\circ
+\mathrm{DFRB}(\mathbf{X}),
+\label{eq:sshb}
+\end{equation}
+where $\mathrm{PU}_{2}$ denotes $2\times$ PixelUnshuffle followed by
+LIF and temporal compression, $\mathrm{TCAM}$ denotes the TimeAttention
+module, $\mathrm{Refine}$ denotes the two spike-convolutional refinement
+blocks, and $(\cdot + \mathrm{DFRB}(\mathbf{X}))$ denotes the skip
+addition before the final TCS-Att head. \SSHB{} is placed at the
+full-resolution level where pixel-level details are most important.
+Although each \SSHB{} block is more expressive than a local residual
+block, its cost is controlled by 5QS-LIF sparsity and FFT-based
+spatial mixing.
+
+\subsection{Training Objective}
+\label{sec:framework-loss}
+
+\OrbitALIF{} is trained end-to-end using a composite reconstruction
+objective that combines a Charbonnier penalty with a structural
+similarity term. Given the prediction $\hat{\mathbf{y}}$ and the
+cloud-free reference image $\mathbf{y}$, the loss is defined as
+\begin{equation}
+\ell(\hat{\mathbf{y}},\mathbf{y})
+=
+\frac{1}{|\Omega|}
+\sum_{p\in\Omega}
+\sqrt{
+(\hat{\mathbf{y}}_p-\mathbf{y}_p)^2+\varepsilon^2
+}
++
+\lambda
+\left(
+1-\mathrm{SSIM}(\hat{\mathbf{y}},\mathbf{y})
+\right),
+\label{eq:loss}
+\end{equation}
+where $\Omega$ is the pixel set, $\varepsilon=10^{-3}$, and
+$\lambda=0.1$. The Charbonnier term acts as a smooth robust
+reconstruction loss and reduces the influence of local outliers caused
+by severe cloud occlusion. The SSIM term encourages structural
+consistency, helping the model preserve cloud boundaries, textures, and
+local image structures. With $\lambda=0.1$, the Charbonnier term
+dominates the optimization throughout training.
+
+\subsection{Decentralized Constellation Training Pipeline}
+\label{sec:framework-fl}
+
+Section~\ref{sec:sysmodel-procedure} defines the mathematical procedure
+of decentralized onboard training. This subsection specifies the
+implementation choices used to instantiate that procedure for
+\OrbitALIF{}.
+
+First, \OrbitALIF{} adopts a \textsc{FedBN}-style parameter handling
+protocol to address source-level feature heterogeneity. Under the
+source-level Dirichlet partition, different satellites may observe
+different cloud-density regimes, which induces distinct feature
+statistics and spike activation patterns. Averaging BN parameters
+globally would force these heterogeneous distributions into a single
+normalization state and may destabilize both intermediate features and
+spike firing rates. Therefore, all BN-tagged parameters are kept local
+and excluded from both intra-plane aggregation and inter-plane Gossip.
+This includes BN affine parameters $(\gamma,\beta)$, running means,
+running variances, batch counters, and the corresponding TDBN and
+TemporalBN parameters used by spiking modules. Only the shared non-BN
+restoration parameters — convolutional weights, biases, and
+non-BN attention parameters — are exchanged across satellites. Local
+training in step S1 of each round then naturally refines the BN
+statistics of each satellite on its own data, so that BN normalization
+adapts to the local source distribution without cross-satellite
+interference.
+
+Second, inter-plane communication is implemented by single-step Gossip
+mixing over a fixed chain topology. Compared with a ground-server-based
+parameter aggregation scheme, Gossip better matches the intermittent
+connectivity and sparse inter-plane topology of LEO constellations.
+Each orbital plane exchanges shared non-BN parameters only with its
+neighbors according to the doubly stochastic mixing matrix $W$ defined
+in Section~\ref{sec:sysmodel-procedure}. \textsc{FedBN}~\cite{ref:fedbn}
+and Gossip averaging~\cite{ref:gossip-boyd} are existing methods; they
+are not proposed here as new federated optimization algorithms. Rather,
+they are adopted as system-level training strategies that are adapted
+to the constellation communication topology and source-level
+heterogeneous cloud-removal data.
+
+Third, communication accounting is performed only over shared non-BN
+parameters. For the $2.30$\,M onboard deployment variant, inter-plane
+Gossip transfers the non-BN parameter subset, with each 32-bit
+floating-point state transfer requiring approximately
+$4\,d_{\mathrm{shared}}$ bytes, where $d_{\mathrm{shared}}$ is the
+number of shared parameters. Since the inter-plane topology is a
+fixed chain, the per-round cross-plane traffic scales with the number
+of active inter-plane edges and the shared parameter count. The
+concrete per-round and cumulative communication costs are reported in
+Section~\ref{sec:exp-federated}.
+
+Overall, the decentralized training pipeline has three properties: raw
+cloudy observations remain local to satellites, BN-tagged parameters
+preserve local feature calibration under source-level heterogeneity,
+and shared restoration parameters are collaboratively updated through
+intra-plane aggregation and inter-plane Gossip mixing. This allows
+\OrbitALIF{} to train onboard without uploading raw observations or
+relying on a centralized ground parameter server.
 
 % Section IV: Experiments
 \section{Experiments}\label{sec:experiments}
