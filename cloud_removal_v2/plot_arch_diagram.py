@@ -247,7 +247,7 @@ def _panel_architecture(ax):
 
     tensor_3d(ax, (X_E1+X_E2)/2, Y_ENC,
               FM_48[0], FM_48[1], FM_48[2], C_BLUE,
-              dim_label=r"$48{\times}\tfrac{H}{2}{\times}\tfrac{W}{2}$")
+              dim_label=r"$48{\times}\frac{H}{2}{\times}\frac{W}{2}$")
     ax.text((X_E1+X_E2)/2, Y_ENC+0.52, r"$\downarrow\!2$",
             ha="center", va="center", fontsize=5.2, color=darken(C_BLUE, 0.20))
 
@@ -258,7 +258,7 @@ def _panel_architecture(ax):
 
     tensor_3d(ax, (X_E2+X_E3)/2, Y_ENC,
               FM_96[0], FM_96[1], FM_96[2], C_BLUE,
-              dim_label=r"$96{\times}\tfrac{H}{4}{\times}\tfrac{W}{4}$")
+              dim_label=r"$96{\times}\frac{H}{4}{\times}\frac{W}{4}$")
     ax.text((X_E2+X_E3)/2, Y_ENC+0.48, r"$\downarrow\!2$",
             ha="center", va="center", fontsize=5.2, color=darken(C_BLUE, 0.20))
 

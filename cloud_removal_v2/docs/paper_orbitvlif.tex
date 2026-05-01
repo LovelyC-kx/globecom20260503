@@ -420,7 +420,7 @@ produces a clean image $\hat{\mathbf{y}}$ via four \OrbitVLIF{}
 building blocks (Fig.~\ref{fig:modules}), and shares
 weights across $50$ satellites under \textsc{FedBN}\,+\,Gossip.
 
-\begin{figure*}[t]
+\begin{figure*}[!htbp]
   \centering
   \includegraphics[width=\textwidth]{fig1.pdf}
   \caption{\OrbitVLIF{} system overview. \textbf{(a)} Single-satellite
@@ -435,7 +435,7 @@ weights across $50$ satellites under \textsc{FedBN}\,+\,Gossip.
   \label{fig:overview}
 \end{figure*}
 
-\begin{figure*}[t]
+\begin{figure*}[!htbp]
   \centering
   \includegraphics[width=\textwidth]{fig2_modules.pdf}
   \caption{\OrbitVLIF{} building-block zoom-ins. \textbf{(a)} The
@@ -873,7 +873,7 @@ isolated AutoDL containers; no inter-container synchronisation
 
 \subsection{Centralised Cloud-Removal Performance}\label{sec:exp-centralized}
 
-\begin{table}[t]
+\begin{table}[!htbp]
 \centering
 \caption{Centralised cloud-removal on CUHK-CR1 and CUHK-CR2. All
 runs use AdamW with cosine LR; \OrbitVLIF{} runs $600$ epochs,
@@ -895,7 +895,7 @@ PlainUNet (baseline)        & $1.31$ & $23.040$           & $0.7400$           &
 \end{tabular}
 \end{table}
 
-\begin{figure}[t]
+\begin{figure}[!htbp]
   \centering
   \includegraphics[width=\columnwidth]{fig7_centralized_4panel.pdf}
   \caption{Centralised training dynamics on CUHK-CR1 (top row) and
@@ -946,7 +946,7 @@ fraction of the inference cost. The same trained checkpoint is
 visualised on a representative sample in
 Fig.~\ref{fig:fullsota-vis}.
 
-\begin{table}[t]
+\begin{table}[!htbp]
   \centering
   \caption{Full-capacity \OrbitVLIF{} ($d\!\approx\!14$M, $C\!=\!56$)
   vs.\ representative cloud-removal SOTA on CUHK-CR1 / CR2.
@@ -972,7 +972,7 @@ Fig.~\ref{fig:fullsota-vis}.
   \end{tabular}}
 \end{table}
 
-\begin{figure}[t]
+\begin{figure}[!htbp]
   \centering
   \includegraphics[width=\columnwidth]{fig_fullsota_vis.pdf}
   \caption{Qualitative comparison of the full-capacity
@@ -1020,7 +1020,7 @@ Section~\ref{sec:framework-arch} on CUHK-CR1 under matched training
 degenerates to plain addition at $\boldsymbol{\gamma}\!=\!\tfrac12$ and
 no surgery is needed in code.
 
-\begin{table}[t]
+\begin{table}[!htbp]
 \centering
 \caption{Component ablation on CUHK-CR1 ($300$ epochs).
 $\Delta$ relative to the full model A1.  Row \emph{C2} reproduces
@@ -1041,7 +1041,7 @@ PlainUNet (C2, ref.)      & $1.31$ & $24.872$         & $-0.502$    & $0.7683$  
 \end{tabular}
 \end{table}
 
-\begin{figure}[t]
+\begin{figure}[!htbp]
   \centering
   \includegraphics[width=\columnwidth]{fig4_ablation_bars.pdf}
   \caption{Component ablation on CUHK-CR1.  PSNR (left bars) and
@@ -1117,7 +1117,7 @@ will be supplied in the camera-ready or extended version. The
 points of comparison for the aggregation pipeline itself, are
 already complete.
 
-\begin{table}[t]
+\begin{table}[!htbp]
 \centering
 \caption{Federated cloud-removal on CUHK-CR1\,+\,CR2 under
 \textsc{FedBN}\,+\,Gossip, $T\!=\!200$ rounds, source-level
@@ -1140,7 +1140,7 @@ $\alpha = 1.0$  (near-IID)           & [XX.XX]   & [0.XXXX]  & [XX]       & [X.X
 \end{tabular}
 \end{table}
 
-\begin{figure}[t]
+\begin{figure}[!htbp]
   \centering
   \includegraphics[width=\columnwidth]{fig5_federated_curves.pdf}
   \caption{Federated test PSNR vs.\ communication round under
@@ -1174,7 +1174,7 @@ are visualised in the camera-ready Dirichlet heatmap.
 
 \subsection{Energy and Per-Layer Spike Analysis}\label{sec:exp-energy}
 
-\begin{figure}[t]
+\begin{figure}[!htbp]
   \centering
   \includegraphics[width=\columnwidth]{fig6_energy_bars.pdf}
   \caption{Per-image estimated inference energy on a
@@ -1192,7 +1192,7 @@ are visualised in the camera-ready Dirichlet heatmap.
   \label{fig:energy}
 \end{figure}
 
-\begin{figure}[t]
+\begin{figure}[!htbp]
   \centering
   \includegraphics[width=\columnwidth]{fig9_per_layer_spike_rate.pdf}
   \caption{\OrbitVLIF{} per-layer LIF firing rate (fraction of
@@ -1266,7 +1266,7 @@ to yield indistinguishable bounds.
 
 \subsection{Qualitative Results}\label{sec:exp-qualitative}
 
-\begin{figure}[t]
+\begin{figure}[!htbp]
   \centering
   \includegraphics[width=\columnwidth]{fig3_qualitative_grid.pdf}
   \caption{Qualitative cloud-removal comparison on four
