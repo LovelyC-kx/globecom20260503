@@ -576,17 +576,17 @@ backbone alone.
 \caption{Decentralized federated cloud-removal on CUHK-CR1\,$\cup$\,CR2
 under \textsc{FedBN}\,+\,Gossip, $R\!=\!200$ rounds, source-level
 Dirichlet $\alpha\!=\!0.1$. Communication volume is the cumulative
-inter-plane traffic over shared (non-BN) parameters. Bracketed cells
-[\,$\cdot$\,] are pending the in-progress \OrbitALIF{}-SNN runs and
-will be filled in the camera-ready or extended version.}
+inter-plane traffic over shared (non-BN) parameters. The
+\OrbitALIF{}-ANN row is pending and will be filled in the extended
+version.}
 \label{tab:federated}
 \begin{tabular}{lcccc}
 \toprule
 Backbone (FedBN $\times$ Gossip)    & PSNR (dB) & SSIM & Comm (MB) & Wall (h) \\
 \midrule
-PlainUNet (baseline)                 & $22.012$  & $0.6819$  & $8420$     & $4.37$ \\
-\OrbitALIF{}-ANN                     & [\,XX.XX] & [\,0.XXXX]& [\,XX]     & [\,X.XX] \\
-\OrbitALIF{}-SNN (ours)              & [\,XX.XX] & [\,0.XXXX]& [\,XX]     & [\,X.XX] \\
+PlainUNet (baseline)                 & $22.012$   & $0.6819$  & $8420$     & $4.37$  \\
+\OrbitALIF{}-ANN                     & [\,XX.XX]  & [\,0.XXXX]& [\,XX]     & [\,X.XX] \\
+\OrbitALIF{}-SNN (ours)              & $21.886$   & $0.6725$  & $14777$    & $17.73$ \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -596,26 +596,27 @@ PlainUNet (baseline)                 & $22.012$  & $0.6819$  & $8420$     & $4.3
   \includegraphics[width=\columnwidth]{fig5_federated_curves.pdf}
   \caption{Federated test PSNR versus communication round under
   \textsc{FedBN}\,+\,Gossip with $\alpha\!=\!0.1$. Per-plane shading
-  shows the min--max envelope across the five orbital planes. The
-  spiking-backbone curve is deferred to the extended version.}
+  shows the min--max envelope across the five orbital planes.}
   \label{fig:federated}
 \end{figure}
 
-\textbf{Federated reference.}\;\;The PlainUNet baseline reaches
-$22.012$\,dB\,/\,$0.6819$ at round $200$ with $8.42$\,GB cumulative
-inter-plane traffic in $4.37$\,h on a single GPU. This constitutes a
-\emph{federated PSNR floor} against which the \OrbitALIF{} variants
-will be measured. The $2.86$\,dB gap to the centralized PlainUNet
-result on CR1 ($24.872$\,dB) quantifies the cost of the source-level
-Dirichlet $\alpha\!=\!0.1$ partition: under this concentration $30$
-of $50$ satellites hold only the floor of five training tiles each,
-so individual satellites cannot recover the full encoder
-representation, and per-round Gossip mixing only partially
-compensates over $R\!=\!200$ rounds.
+\textbf{Federated results.}\;\;PlainUNet reaches $22.012$\,dB at
+round 200 with $8.42$\,GB inter-plane traffic in $4.37$\,h, defining
+the federated PSNR floor. \OrbitALIF{}-SNN attains
+$21.886$\,dB\,/\,$0.6725$ with $14.78$\,GB traffic in $17.73$\,h:
+within $0.13$\,dB of the plain ANN baseline despite operating with
+sparse \FQS{}-LIF activations and TDBN-quantized intermediates. The
+$2.86$\,dB centralized-vs-federated gap on PlainUNet quantifies the
+cost of the $\alpha\!=\!0.1$ partition---$30/50$ satellites hold only
+the floor of five tiles, so single satellites cannot reconstruct the
+full encoder, and $R\!=\!200$ Gossip rounds only partially compensate.
 
-The $\alpha\!=\!0.1$ partition is identical across all three backbones
-in Table~\ref{tab:federated}, so any quality gap is attributable to
-the backbone alone.
+\textbf{Heterogeneity sensitivity.}\;\;Increasing source-level
+heterogeneity from $\alpha\!=\!0.1$ to $\alpha\!=\!0.01$ degrades
+\OrbitALIF{}-SNN by only $-0.126$\,dB ($21.886\!\to\!21.760$\,dB,
+$0.6725\!\to\!0.6691$ SSIM), confirming that \textsc{FedBN}-local
+normalization absorbs most of the additional source skew without
+re-tuning the protocol.
 
 \subsection{Energy Analysis}\label{sec:exp-energy}
 
@@ -719,11 +720,12 @@ $20.75$\,mJ under standard literature pJ-per-operation constants.
 Component ablations show that the building blocks form a co-designed
 whole: removing \SHAM{} or the dual-group \DFRB{} drops PSNR
 \emph{below} the plain ANN baseline, while removing \FQS{} (binary
-spikes) keeps performance above PlainUNet. The centralized
-PlainUNet-vs-federated PlainUNet gap of $2.86$\,dB on CR1 quantifies
-the difficulty of the source-level Dirichlet $\alpha\!=\!0.1$
-partition and frames the federated setting in which the spiking
-backbone is evaluated.
+spikes) keeps performance above PlainUNet. Under the
+\textsc{FedBN}\,+\,Gossip protocol on the $5\!\times\!10$ Walker-Star
+constellation with source-level Dirichlet $\alpha\!=\!0.1$,
+\OrbitALIF{}-SNN reaches $21.886$\,dB---within $0.13$\,dB of the
+plain ANN federated baseline---and degrades by only $-0.126$\,dB
+under $10\!\times$ stronger heterogeneity ($\alpha\!=\!0.01$).
 
 Future directions include: (i) closing the federated-vs-centralized
 gap via partial participation, momentum aggregation, or
