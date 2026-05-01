@@ -107,62 +107,140 @@ federated learning, onboard satellite computing.
 % =====================================================================
 \section{Introduction}\label{sec:intro}
 
-Low-Earth-orbit (LEO) satellite constellations continuously acquire
-large-scale optical remote-sensing imagery, but cloud contamination
-degrades image usability and delays time-critical downstream tasks.
-Conventional pipelines transmit raw imagery to ground servers for
-processing, creating a timeliness bottleneck as contact windows are
-narrow and bandwidth-constrained~\cite{ref:earthobs1,ref:onboardfl-bottleneck}.
-Space Computing Power Networks (Space-CPN) propose shifting intelligent
-processing onboard~\cite{ref:spacecpn1}, yet onboard cloud removal is
-non-trivial: it is a high-fidelity dense regression task requiring
-pixel-level recovery of cloud boundaries and fine-grained textures,
-and ANN-based models incur energy costs incompatible with LEO
-solar-power budgets~\cite{ref:cuhkcr}.
+Low-Earth-orbit (LEO) optical satellites such as Sentinel-2 and
+Landsat-9 continuously image the Earth surface and feed applications
+ranging from rapid disaster response~\cite{ref:earthobs2} to
+environmental monitoring and precision
+agriculture~\cite{ref:earthobs1}. A persistent obstacle in this
+pipeline is cloud contamination. Multi-year MODIS climatology reports
+that about $67\%$ of the Earth surface is covered by cloud at any
+given moment~\cite{ref:king2013cloud}, and a substantial fraction of
+every acquired tile is routinely discarded as
+unusable~\cite{ref:cuhkcr,ref:ebel2021multisensor}. Cloud removal
+seeks to recover the underlying surface from a cloudy observation,
+which is a dense per-pixel regression task rather than a categorical
+prediction~\cite{ref:cuhkcr}. The conventional pipeline runs in two
+stages. Each satellite stores raw imagery, downlinks it during one
+of the few daily ground-station contact windows, and a server cluster
+performs cloud removal in
+batch~\cite{ref:earthobs1,ref:onboardfl-bottleneck}. Three properties
+of LEO operation make this pipeline a bottleneck. Contact windows are
+short, often under ten minutes per pass for a given
+station~\cite{ref:onboardfl-bottleneck}. Inter-satellite link and
+downlink bandwidth are limited compared with terrestrial
+networks~\cite{ref:spacecpn1}. End-to-end latency from acquisition to
+actionable product, typically measured in hours, is incompatible with
+disaster-response decisions that must be made in
+minutes~\cite{ref:earthobs2}.
 
-Spiking neural networks (SNNs) transmit information through sparse
-binary events—synaptic operations fire only on spikes—enabling
-order-of-magnitude energy reductions on neuromorphic hardware~\cite{ref:maass1997,ref:loihi}.
-For onboard training, federated learning avoids raw-data downlink by
-sharing model parameters~\cite{ref:fedavg,ref:fedbn}.
-FLSNN~\cite{ref:flsnn} demonstrated decentralized federated SNN
+Moving cloud removal onboard removes the downlink and the multi-hour
+latency, but the deployment must simultaneously respect four
+constraints that arise from the physics of LEO operation.
+
+\textbf{Power.} A typical LEO Earth-observation satellite carries a
+total bus power budget of $100$ to $300$\,W~\cite{ref:spacecpn1}.
+After subtracting attitude control, thermal management,
+communications, and the imaging payload, the budget available to
+onboard computation is on the order of tens of watts, and it shrinks
+further during the eclipse phase when the spacecraft runs on
+battery. Ground-class ANN inference at the hundreds-of-watts scale
+is not sustainable in this regime.
+
+\textbf{Link.} Inter-satellite link (ISL) bandwidth is typically in
+the $10$ to $100$\,Mbps range, one to two orders of magnitude below
+terrestrial local-area
+networks~\cite{ref:spacecpn1,ref:onboardfl-bottleneck}.
+Ground-station downlink windows are similarly narrow, so any scheme
+that depends on a central parameter server or on frequent
+satellite--ground exchanges is impractical.
+
+\textbf{Topology.} Walker-Star constellations exhibit asymmetric
+connectivity~\cite{ref:walker1984}. Same-plane satellites maintain
+quasi-continuous links, while inter-plane links are available only
+during brief polar-region encounters and are directionally
+constrained. A globally synchronous aggregation step is therefore not
+realisable, and only locally mixed schemes such as Gossip remain
+feasible.
+
+\textbf{Heterogeneity.} Different orbital planes systematically cover
+different latitudes, and consequently observe different
+cloud-thickness climatologies, solar-zenith distributions, and sensor
+radiometric drifts. Each satellite therefore holds a non-IID local
+dataset whose distribution shift is at the source level (sensor and
+atmospheric conditions), distinct from the class-label imbalance that
+dominates the conventional federated-learning
+literature~\cite{ref:hsu2019}.
+
+These four constraints are coupled. A practical onboard
+cloud-removal system must co-design the model, the aggregation
+protocol, and the task formulation.
+
+Existing approaches each address a subset of the four constraints
+but fail to satisfy them jointly.
+
+\textbf{Direct deployment of a ground-trained ANN.} Lifting a
+state-of-the-art cloud-removal model~\cite{ref:cuhkcr} onto the
+satellite addresses none of the four constraints. A single forward
+pass on a $64\!\times\!64$ patch costs roughly $4.5$\,GMACs, or
+$20.75$\,mJ at the $4.6$\,pJ/MAC of $45$\,nm
+CMOS~\cite{ref:horowitz2014}, which exceeds the watt-level onboard
+compute envelope at modest revisit rates and leaves data
+heterogeneity untreated.
+
+\textbf{Single-satellite local training.} Training only on the data
+of one satellite respects the link and topology constraints by
+definition, but it directly violates the heterogeneity constraint.
+A satellite that primarily observes thin maritime cloud at low
+latitudes never sees the optically thick polar cloud that dominates
+another orbit, and the locally trained model fails to generalise.
+
+\textbf{Centralised federated learning.} Standard
+FedAvg~\cite{ref:fedavg} requires a central parameter server. In an
+LEO setting the server must reside on the ground, which forces a
+satellite--ground exchange every round and reintroduces the downlink
+bottleneck that onboard processing was meant to eliminate.
+
+\textbf{Existing decentralised SNN-FL.}
+FLSNN~\cite{ref:flsnn} demonstrated decentralised federated SNN
 training on a Walker-Star constellation, but only for image
-\emph{classification}. Cloud removal imposes three additional gaps.
-First, it is dense pixel regression rather than discrete label
-prediction. Second, it requires multi-scale texture recovery rather
-than compact feature extraction. Third, its non-IID arises at the
-source level (cloud thickness and sensor variation) rather than at
-the class-label level.
+classification. Cloud removal differs in three ways. It is dense
+pixel regression rather than discrete label prediction. It requires
+multi-scale texture recovery rather than compact feature extraction.
+Its non-IID arises at the source level (cloud thickness and sensor
+variation) rather than at the class-label level. None of these gaps
+were addressed, and inference energy was not jointly optimised.
 
-We propose \textbf{\OrbitALIF{}}, the first framework for
-decentralized onboard federated SNN-based optical cloud removal.
-Contributions:
-\begin{itemize}
-\item \textbf{Problem formulation.} We formulate decentralized onboard
-  federated cloud removal over a $5\!\times\!10$ Walker-Star
-  constellation with source-level Dirichlet heterogeneity.
-\item \textbf{\OrbitALIF{} backbone.} Five-level quantized spikes
-  (\FQS{}), dual-frequency residual blocks (\DFRB{}), frequency-spatial
-  attention (\SHAM{}), adaptive gated fusion (\AGFM{}), and
-  spectro-temporal hyper-blocks (\SSHB{}) deliver high-fidelity spiking
-  cloud removal under sparse event-driven computation.
-\item \textbf{System results.} \OrbitALIF{} ($2.30$\,M parameters)
-  is $1.6\!\times$ to $6.8\!\times$ smaller than the end-to-end
-  cloud-removal baselines reported on this benchmark (MemoryNet
-  $3.64$\,M, MSDA-CR $3.91$\,M, CVAE $15.56$\,M~\cite{ref:cuhkcr})
-  while attaining centralized PSNR on CUHK-CR1 within $0.06$\,dB of
-  MSDA-CR. Inference energy is reduced up to $72.3\!\times$ over a
-  matched ANN baseline. Under decentralized \textsc{FedBN}\,+\,Gossip,
-  \OrbitALIF{}-ANN exceeds PlainUNet by $+0.667$\,dB while
-  \OrbitALIF{}-SNN stays within $0.13$\,dB and is robust to
-  $10\!\times$ stronger source heterogeneity.
-\end{itemize}
+These observations point to a co-designed solution at three layers,
+namely a model that respects the power constraint, an aggregation
+protocol that respects the link and topology constraints, and a task
+formulation that exposes source-level heterogeneity.
 
-The remainder of this paper is organized as follows.
-Section~\ref{sec:sysmodel} presents the system model.
-Section~\ref{sec:framework} details the \OrbitALIF{} framework.
-Section~\ref{sec:experiments} reports experimental results.
-Section~\ref{sec:conclusion} concludes.
+To meet these three layers jointly, we present \OrbitALIF{}, the
+first end-to-end framework that performs both onboard training and
+onboard inference for optical cloud removal. Our contributions are
+threefold.
+\textbf{C1: Energy-first SNN architecture.} \OrbitALIF{} is a
+$2.30$\,M-parameter spiking neural network for dense pixel
+restoration. On CUHK-CR1, the centralised model exceeds a compact
+ANN baseline by $+0.50$\,dB PSNR while reducing per-image inference
+energy from $20.75$\,mJ to $0.287$\,mJ on neuromorphic substrates
+such as Loihi-2~\cite{ref:loihi}, a $72.3$-fold reduction, with a
+conservative bound of $1.21$-fold even on general-purpose CMOS
+without neuromorphic acceleration.
+\textbf{C2: Onboard federated cloud-removal pipeline.} We formulate
+optical cloud removal as a decentralised onboard federated learning
+problem over a $5\!\times\!10$ Walker-Star constellation, with
+source-level Dirichlet heterogeneity ($\alpha\!=\!0.1$). Aggregation
+alternates intra-plane ring AllReduce with inter-plane Gossip, and
+we extend FedBN~\cite{ref:fedbn} to the SNN setting (FedBN-on-SNN)
+by keeping every BN-tagged parameter local, including spikingjelly
+TDBN threshold parameters.
+\textbf{C3: Protocol robustness under heterogeneity.} Under
+FedBN-on-SNN, \OrbitALIF{}-SNN stays within $0.13$\,dB of its ANN
+counterpart, and tightening source heterogeneity tenfold to
+$\alpha\!=\!0.01$ degrades PSNR by only $0.126$\,dB, demonstrating
+that local normalisation absorbs source skew without protocol
+re-tuning.
 
 % =====================================================================
 % Section II: System Model
@@ -908,6 +986,48 @@ T.-M.~H.~Hsu, H.~Qi, and M.~Brown,
 ``Measuring the effects of non-identical data distribution for
 federated visual classification,''
 \emph{arXiv preprint arXiv:1909.06335}, 2019.
+
+% [VERIFIED] King et al. 2013 IEEE TGRS, multi-year MODIS cloud
+% climatology.  Source for the "~67%% global cloud cover" statistic.
+% DOI 10.1109/TGRS.2012.2227333.
+\bibitem{ref:king2013cloud}
+M.~D.~King, S.~Platnick, W.~P.~Menzel, S.~A.~Ackerman, and
+P.~A.~Hubanks,
+``Spatial and temporal distribution of clouds observed by MODIS
+onboard the Terra and Aqua satellites,''
+\emph{IEEE Trans.\ Geosci.\ Remote Sens.}, vol.~51, no.~7,
+pp.~3826--3852, Jul.\ 2013.
+
+% [USER VERIFY] Ebel et al. 2021 IEEE TGRS, multisensor data fusion
+% for cloud removal in Sentinel-2 imagery.  Cited for the empirical
+% observation that large fractions of optical tiles are unusable due
+% to cloud cover.  USER ACTION: confirm vol/no/pp via IEEE Xplore.
+\bibitem{ref:ebel2021multisensor}
+P.~Ebel, A.~Meraner, M.~Schmitt, and X.~X.~Zhu,
+``Multisensor data fusion for cloud removal in global and all-season
+Sentinel-2 imagery,''
+\emph{IEEE Trans.\ Geosci.\ Remote Sens.}, vol.~59, no.~7,
+pp.~5866--5878, Jul.\ 2021.
+
+% [USER VERIFY] Walker 1984, Journal of the British Interplanetary
+% Society.  Canonical reference defining circular Walker satellite
+% constellation patterns, including the Walker-Star variant used in
+% this paper.  USER ACTION: confirm exact issue / page numbers via
+% the JBIS archive.
+\bibitem{ref:walker1984}
+J.~G.~Walker,
+``Satellite constellations,''
+\emph{J.\ Brit.\ Interplanetary Soc.}, vol.~37, pp.~559--572, 1984.
+
+% [VERIFIED] Horowitz, ISSCC 2014 keynote, "Computing's energy problem
+% (and what we can do about it)".  Canonical source for the
+% 4.6 pJ/MAC figure at 45 nm CMOS, used throughout the SNN-vs-ANN
+% energy literature including FLSNN, ESDNet, and VLIF-deraining.
+\bibitem{ref:horowitz2014}
+M.~Horowitz,
+``Computing's energy problem (and what we can do about it),''
+\emph{IEEE Int.\ Solid-State Circuits Conf.\ (ISSCC) Dig.\ Tech.\
+Papers}, pp.~10--14, Feb.\ 2014.
 
 \end{thebibliography}
 
