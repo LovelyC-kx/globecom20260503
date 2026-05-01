@@ -451,42 +451,16 @@ analysis uses forward hooks on $32$ CR1 test patches.
 
 \subsection{Centralized Cloud-Removal Performance}\label{sec:exp-centralized}
 
-Table~\ref{tab:centralized} reports centralized results on CUHK-CR1
-and CUHK-CR2. \OrbitALIF{} attains $25.374$\,dB on CR1 and
-$23.197$\,dB on CR2, exceeding the compact PlainUNet baseline by
-$+0.502$\,dB on CR1 and $+0.157$\,dB on CR2 despite operating with
-sparse spike activations and TDBN-quantized intermediate features.
-The smaller margin on CR2 reflects the harder restoration ceiling
-under thick-cloud occlusion, where the encoder features themselves
-carry less recoverable information.
-
-\begin{table}[!htbp]
-\centering
-\caption{Centralized cloud-removal performance on CUHK-CR1 and
-CUHK-CR2. Both models are trained for $400$ epochs under identical
-optimization (AdamW, lr\,$10^{-3}$, cosine, batch~$4$). PSNR is
-evaluated on $64\!\times\!64$ centre patches of the held-out test
-split. Bold indicates the best per dataset.}
-\label{tab:centralized}
-\begin{tabular}{lcc}
-\toprule
-Method                    & Params (M) & PSNR (dB) \\
-\midrule
-\multicolumn{3}{l}{\emph{CUHK-CR1 (thin clouds)}} \\
-PlainUNet                  & $1.31$ & $24.872$           \\
-\OrbitALIF{} (ours)        & $2.30$ & $\mathbf{25.374}$  \\
-\midrule
-\multicolumn{3}{l}{\emph{CUHK-CR2 (thick clouds)}} \\
-PlainUNet                  & $1.31$ & $23.040$           \\
-\OrbitALIF{} (ours)        & $2.30$ & $\mathbf{23.197}$  \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-The $+0.50$\,dB CR1 gain is architectural rather than capacity-driven
-(Section~\ref{sec:exp-ablation}). A capacity-scaled variant at
-$C\!=\!56$ (${\approx}\,14$\,M) is reserved for comparison against
-full-capacity baselines in the extended version.
+Under identical optimization (AdamW, lr\,$10^{-3}$, cosine,
+$400$ epochs, batch~$4$), \OrbitALIF{} attains $25.374$\,dB on
+CUHK-CR1 and $23.197$\,dB on CUHK-CR2, exceeding the compact
+PlainUNet baseline by $+0.502$\,dB on CR1 and $+0.157$\,dB on CR2
+despite operating with sparse spike activations and TDBN-quantized
+intermediate features. The smaller CR2 margin reflects the harder
+restoration ceiling under thick-cloud occlusion. The CR1 gain is
+architectural: the ablations of Section~\ref{sec:exp-ablation} show
+that disabling either \SHAM{} or the dual-group \DFRB{} removes
+the gain entirely (Tab.~\ref{tab:ablation}, rows B1--B2).
 
 \subsection{Component Ablation}\label{sec:exp-ablation}
 
@@ -508,8 +482,8 @@ a smaller dataflow change than B1--B3.
 \centering
 \caption{Component ablation on CUHK-CR1 ($300$ epochs).
 $\Delta$ values are relative to the full \OrbitALIF{} (A1). Row
-\emph{C2} reproduces the PlainUNet baseline of
-Table~\ref{tab:centralized} for direct reference.}
+\emph{C2} provides the centralized PlainUNet baseline for direct
+reference.}
 \label{tab:ablation}
 \begin{tabular}{lccccc}
 \toprule
@@ -708,7 +682,8 @@ Figure~\ref{fig:qualitative} shows that \OrbitALIF{} recovers texture
 and colour consistency across all four tiles, particularly along
 thin-cloud edges where the \DFRB{} spatial path is most active.
 The quality gap narrows under fully-opaque cover, consistent with
-the smaller CR2 margin in Table~\ref{tab:centralized}.
+the smaller CR2 margin reported in
+Section~\ref{sec:exp-centralized}.
 
 % =====================================================================
 % Section V: Conclusion
