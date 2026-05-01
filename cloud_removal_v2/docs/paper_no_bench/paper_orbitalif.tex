@@ -137,26 +137,29 @@ Moving cloud removal onboard removes the downlink and the multi-hour
 latency, but the deployment must simultaneously respect four
 constraints that arise from the physics of LEO operation.
 
-\textbf{Power.} A LEO Earth-observation bus has $100$--$300$\,W
-total~\cite{ref:spacecpn1}, leaving tens of watts for compute after
-subsystems---far below ground-class ANN inference at hundreds of
-watts.
+\textbf{Power.} A LEO Earth-observation satellite has a bus power
+budget of $100$ to $300$\,W~\cite{ref:spacecpn1}; after attitude,
+thermal, communication, and payload subsystems, the compute envelope
+is tens of watts. Ground-class ANN inference at hundreds of watts is
+not sustainable.
 
-\textbf{Link.} Inter-satellite link bandwidth is $10$--$100$\,Mbps,
+\textbf{Link.} Inter-satellite link bandwidth is $10$ to $100$\,Mbps,
 one to two orders below terrestrial
-networks~\cite{ref:spacecpn1,ref:onboardfl-bottleneck}, ruling out
-any central parameter server.
+networks~\cite{ref:spacecpn1,ref:onboardfl-bottleneck}, so any scheme
+depending on a central parameter server is impractical.
 
-\textbf{Topology.} Walker-Star connectivity is
-asymmetric~\cite{ref:walker1984}. Same-plane links are
-quasi-continuous, while inter-plane links open only during polar
-encounters, so only locally mixed schemes such as Gossip are
-feasible.
+\textbf{Topology.} Walker-Star constellations are asymmetrically
+connected~\cite{ref:walker1984}: same-plane links are
+quasi-continuous, but inter-plane links are available only during
+brief polar encounters. Globally synchronous aggregation is therefore
+infeasible, and only locally mixed schemes such as Gossip remain.
 
-\textbf{Heterogeneity.} Different orbital planes observe different
-cloud climatologies and sensor drifts, so each satellite holds a
-source-level non-IID dataset distinct from the class-label
-imbalance studied in standard FL~\cite{ref:hsu2019}.
+\textbf{Heterogeneity.} Different orbital planes cover different
+latitudes and observe different cloud-thickness climatologies,
+solar-zenith distributions, and sensor radiometric drifts. Each
+satellite therefore holds a source-level non-IID dataset, distinct
+from the class-label imbalance studied in standard federated
+learning~\cite{ref:hsu2019}.
 
 These four constraints are coupled. A practical onboard
 cloud-removal system must co-design the model, the aggregation
@@ -165,22 +168,28 @@ protocol, and the task formulation.
 Existing approaches each address a subset of the four constraints
 but fail to satisfy them jointly.
 
-\textbf{Model side.} Lifting a state-of-the-art cloud-removal
-ANN~\cite{ref:cuhkcr} onto the satellite costs $\sim\!4.5$\,GMACs
-per $64\!\times\!64$ patch, or $20.75$\,mJ at $4.6$\,pJ/MAC on
-$45$\,nm CMOS~\cite{ref:horowitz2014}, exceeding the watt-level
-onboard envelope. Training only on a single satellite respects the
-link constraint but never sees other orbits' cloud distributions
-and fails to generalize.
+\textbf{Direct ANN deployment.} Lifting a state-of-the-art
+cloud-removal model~\cite{ref:cuhkcr} onto the satellite costs
+$\sim\!4.5$\,GMACs per $64\!\times\!64$ patch, or $20.75$\,mJ at the
+$4.6$\,pJ/MAC of $45$\,nm CMOS~\cite{ref:horowitz2014}, exceeding
+the watt-level onboard envelope.
 
-\textbf{Protocol side.} Standard FedAvg~\cite{ref:fedavg} requires a
-central server, which in LEO sits on the ground and reintroduces
-the downlink bottleneck. FLSNN~\cite{ref:flsnn} ran decentralized
-federated SNN training on a Walker-Star constellation but only for
-classification. Cloud removal differs in dense pixel regression,
-multi-scale texture recovery, and source-level (rather than
-label-level) non-IID, and inference energy was not jointly
-optimized.
+\textbf{Single-satellite training.} Respects the link and topology
+constraints but violates heterogeneity: a satellite at low latitudes
+never sees the thick polar cloud of another orbit and fails to
+generalize.
+
+\textbf{Centralized FL.} FedAvg~\cite{ref:fedavg} requires a central
+server. In LEO that server sits on the ground, forcing a
+satellite--ground round-trip every round and reintroducing the
+downlink bottleneck.
+
+\textbf{Decentralized SNN-FL.} FLSNN~\cite{ref:flsnn} ran
+decentralized federated SNN training on a Walker-Star constellation,
+but only for classification. Cloud removal differs in dense pixel
+regression, multi-scale texture recovery, and source-level
+(rather than label-level) non-IID, and inference energy was not
+jointly optimized.
 
 These observations point to a co-designed solution at three layers,
 namely a model that respects the power constraint, an aggregation
@@ -193,13 +202,12 @@ onboard inference for optical cloud removal. Our contributions are
 threefold.
 \textbf{C1: Energy-first SNN architecture.} \OrbitALIF{} is a
 $2.30$\,M-parameter spiking neural network for dense pixel
-restoration. On CUHK-CR1 it stays within $0.81$\,dB PSNR of the
-strongest published cloud-removal model at a fraction of the
-parameters (Tab.~\ref{tab:cr1-bench}), and reduces per-image
-inference energy from $20.75$\,mJ to $0.287$\,mJ on neuromorphic
-substrates such as Loihi-2~\cite{ref:loihi}, a $72.3$-fold
-reduction, with a conservative bound of $1.21$-fold even on
-general-purpose CMOS without neuromorphic acceleration.
+restoration. On CUHK-CR1, the centralized model exceeds the
+PlainUNet baseline by $+0.50$\,dB PSNR while reducing per-image inference
+energy from $20.75$\,mJ to $0.287$\,mJ on neuromorphic substrates
+such as Loihi-2~\cite{ref:loihi}, a $72.3$-fold reduction, with a
+conservative bound of $1.21$-fold even on general-purpose CMOS
+without neuromorphic acceleration.
 \textbf{C2: Onboard federated cloud-removal pipeline.} We formulate
 optical cloud removal as a decentralized onboard federated learning
 problem over a $5\!\times\!10$ Walker-Star constellation, with
@@ -455,13 +463,15 @@ o_t \;=\; \frac{\mathrm{round}(\mathrm{clamp}(u_t,0,4))}{4}\;\in\;
 \label{eq:5qs-forward}
 \end{equation}
 The leak rate is $\tau\!=\!0.25$ and the previous spike is
-subtracted before the leak. Synaptic operations fire only when
-$o_t\!>\!0$, preserving event-driven sparsity while the four
-non-zero levels carry two bits per step instead of one. Training
-uses a straight-through surrogate that passes the upstream gradient
-through inside $[0,4]$ and clips it elsewhere. This neuron is the
-SNN-sparsity foundation underlying the energy claim of
-Section~\ref{sec:intro}.
+subtracted before the leak, giving
+$u_t\!=\!(u_{t-1}\!-\!o_{t-1})\tau+i_t$. Synaptic operations fire
+only when $o_t\!>\!0$, which preserves event-driven sparsity, while
+the four non-zero levels carry two bits per step instead of one.
+Training uses the standard straight-through surrogate $\partial
+o_t/\partial u_t \approx \tfrac{1}{4}\cdot\mathbb{1}\{0\!\le\!u_t\!\le\!4\}$.
+This neuron is the SNN-sparsity foundation that all three
+architectural principles operate within, and is the activation-level
+expression of the energy claim made in Section~\ref{sec:intro}.
 
 \subsection{Block Scale: Multi-Domain Decomposition}
 \label{sec:framework-block}
@@ -474,32 +484,48 @@ block scale with two complementary decompositions: \DFRB{} in the
 pixel-value/spatial domain and \SHAM{} in the time/frequency domain.
 
 \textbf{Dual-Frequency Residual Block (\DFRB{}).} \DFRB{} routes
-its input through two cascaded groups. Group~1 thresholds
-$\mathbf{X}$ in the value domain via a 5QS-LIF neuron, splitting
-it into a high-component $\mathbf{X}_h$ and a low-component
-$\mathbf{X}_l\!=\!\mathbf{X}\!-\!\mathbf{X}_h$. The two are
-recombined with learnable scales and a multiplicative high-region
-gate $\mathbf{X}\!\odot\!\mathbf{X}_h$, then convolved and passed
-through TDBN. Group~2 applies the same template in the spatial-block
-domain through a $2\!\times$ PixelShuffle-LIF, yielding
-$\mathbf{Z}_{2h}$. A cross-scale gate $\sigma(g)$ with $g$
-initialized at zero couples the two groups via the term
-$\sigma(g)\,\mathbf{X}_h\!\odot\!\mathbf{Z}_{2h}$, instantiating P3.
-The block closes with a shortcut $\mathrm{Conv}(\mathbf{X})$ and a
-\SHAM{} tail.
+its input through two cascaded groups. Group~1 thresholds the
+input $\mathbf{X}$ in the value domain via a 5QS-LIF neuron,
+producing a high-component $\mathbf{X}_h$ above threshold and a
+low-component $\mathbf{X}_l\!=\!\mathbf{X}\!-\!\mathbf{X}_h$. The
+two are recombined with learnable scales $\alpha_h,\alpha_l$ and a
+multiplicative high-region gate that lets the original signal
+re-enter where the high-component fires,
+\begin{equation}
+\mathbf{Z}_1
+\;=\;
+\mathrm{TDBN}\bigl(\mathrm{Conv}(
+\alpha_h\mathbf{X}_h+\alpha_l\mathbf{X}_l+\mathbf{X}\odot\mathbf{X}_h)\bigr).
+\label{eq:dfrb-g1}
+\end{equation}
+Group~2 applies the same template in the spatial-block domain via
+a $2\!\times$ PixelShuffle-LIF, yielding a between-block
+high-component $\mathbf{Z}_{2h}$. A cross-scale gate $\sigma(g)$
+with $g$ initialized at zero couples the two groups through
+$\sigma(g)\,\mathbf{X}_h\!\odot\!\mathbf{Z}_{2h}$, instantiating P3
+so that each group first matures in isolation. The block closes
+with a shortcut $\mathrm{Conv}(\mathbf{X})$, an additive global
+residual, and a \SHAM{} tail.
 
 \textbf{Spectral-Spatial Hybrid Attention (\SHAM{}).} Following the
 FSTA-SNN attention design~\cite{ref:fstasnn2025}, \SHAM{} re-weights
-spike features along the time and Fourier axes that \DFRB{} does
-not touch. A temporal amplitude attention reweights the $T$ spike
-steps with a sigmoid gate. A spatial frequency attention takes the
-2D real FFT of the temporal mean, modulates the magnitude with a
-\texttt{FreqMLP}, reconstructs via inverse FFT (phase preserved
-to keep spatial structure intact), and projects through a
-$7\!\times\!7$ convolution with a sigmoid head. The two branches
-compose through an outer P2-style gate $\sigma(\eta)$ with $\eta$
-initialized at zero, so \SHAM{} starts as identity and gradually
-opens during training. It embeds at the tail of every \DFRB{}.
+spike features along the two axes that \DFRB{} does not touch: the
+time axis and the Fourier amplitude spectrum. A temporal
+amplitude attention (TAA) reweights the $T$ spike steps with a
+sigmoid gate. A spatial frequency attention (SFA) takes the 2D real
+FFT of the temporal mean, modulates the magnitude with a
+\texttt{FreqMLP}, reconstructs via inverse FFT (phase preserved so
+that spatial structure is not destroyed), and projects through a
+$7\!\times\!7$ convolution with a sigmoid head producing a spatial
+mask. The two branches are composed through an outer P2-style gate,
+\begin{equation}
+\mathrm{SHAM}(\mathbf{X})
+\;=\;
+\mathbf{X}+\sigma(\eta)\bigl(\mathrm{SFA}(\mathrm{TAA}(\mathbf{X}))-\mathbf{X}\bigr),
+\label{eq:sham}
+\end{equation}
+with $\eta$ initialized at zero so the module is identity at
+training start. \SHAM{} embeds at the tail of every \DFRB{}.
 
 \subsection{Network Scale: Gated Fusion and Hyper-Block}
 \label{sec:framework-network}
@@ -511,30 +537,54 @@ deliver the global receptive field that the highest-resolution
 level needs to hallucinate occluded surface from distant context.
 
 \textbf{Adaptive Gated Fusion (\AGFM{}).} \AGFM{} produces a
-per-pixel per-channel gate $\boldsymbol{\gamma}\!=\!\sigma(\mathrm{Conv}_{1\times 1}([\mathbf{d},\mathbf{e}]))$
-from the decoder feature $\mathbf{d}$ and the encoder skip
-$\mathbf{e}$, then fuses them as
-$\boldsymbol{\gamma}\!\odot\!\mathbf{d}+(1-\boldsymbol{\gamma})\!\odot\!\mathbf{e}$
-and routes the result through a 5QS-LIF activation and TDBN.
-The pre-sigmoid logits start at zero, so $\boldsymbol{\gamma}$
-begins at $0.5$ and progressively differentiates, instantiating
-P3. \AGFM{} sits at the first two multi-scale levels; the deepest
-level uses a direct encoder--decoder connection.
+spatially varying gate from the concatenated decoder feature
+$\mathbf{d}$ and the encoder skip $\mathbf{e}$, fuses them, and
+routes the result through a 5QS-LIF activation and TDBN,
+\begin{equation}
+\mathbf{f}
+\;=\;
+\mathrm{TDBN}\bigl(\mathrm{LIF}(\boldsymbol{\gamma}\odot\mathbf{d}+(1-\boldsymbol{\gamma})\odot\mathbf{e})\bigr),
+\label{eq:agfm}
+\end{equation}
+with $\boldsymbol{\gamma}\!=\!\sigma\bigl(\mathrm{Conv}_{1\times 1}([\mathbf{d};\mathbf{e}]_C)\bigr)$.
+The gate is per-pixel and per-channel, so the network can trust the
+decoder feature in heavily corrupted regions and the encoder skip
+elsewhere. The pre-sigmoid logits of $\boldsymbol{\gamma}$ are
+initialized at zero, so $\boldsymbol{\gamma}$ starts at $0.5$ (a
+balanced fusion of the two paths) and progressively differentiates
+as training proceeds, which instantiates P3. \AGFM{} is inserted at
+the first and second multi-scale levels, while the deepest level
+uses a direct encoder--decoder connection.
 
 \textbf{Spectro-Temporal Spike Hyper-Block (\SSHB{}).} \SSHB{} is
-the top-level block. It first applies \DFRB{}, then expands the
-time axis from $T$ to $Tr^2\!=\!16$ via a $2\!\times$
-PixelUnshuffle so that LIF temporal memory bridges spatial
-neighbours, applies a temporal-channel attention over the expanded
-steps, and compresses back to $T$ steps with a Conv3D. A second
-\DFRB{} skip-add and a FreqMLP (FSE) close the block; FSE is
-adapted from the frequency-domain MLP of
-DarkIR~\cite{ref:darkir2024} with magnitude scale $\gamma_F$
-initialized at zero (P2) and provides a global receptive field at
-$O(N\log N)$ cost. The PixelUnshuffle / Compress pair is the
-network-scale instance of P1: the signal decomposes into a longer
-spike-temporal sequence, is processed there, and recombines back
-to the spatial domain.
+the top-level block. It first applies \DFRB{} for local
+multi-domain decomposition, then expands the time axis from $T$ to
+$Tr^2\!=\!16$ via a $2\!\times$ PixelUnshuffle so that the LIF
+neuron's temporal memory bridges spatial neighbours, applies a
+temporal-channel attention (TCAM) over the expanded steps,
+compresses back to $T$ steps with a Conv3D, refines with two
+stacked $[\mathrm{LIF}\!\to\!\mathrm{Conv}\!\to\!\mathrm{TDBN}\!\to\!\mathrm{TCS\text{-}Att}]$
+units, upsamples by $2\!\times$, and skip-adds the initial \DFRB{}
+output. A FreqMLP (FSE), adapted from the frequency-domain MLP of
+DarkIR~\cite{ref:darkir2024}, closes the block. Its magnitude
+scale $\gamma_F$ is initialized at zero so that the FFT branch
+satisfies P2 at training start, and it provides a global receptive
+field at $O(N\log N)$ rather than the $O(N^2)$ cost of a direct
+non-local block,
+\begin{equation}
+\begin{aligned}
+\mathrm{SSHB}(\mathbf{X})
+=\;&\mathrm{FSE}\circ\mathrm{TCS\text{-}Att}\circ
+(\cdot{+}\mathrm{DFRB}(\mathbf{X}))\\
+&\circ\mathrm{Up}_{2}\circ\mathrm{Refine}\circ\mathrm{Cmp}\\
+&\circ\mathrm{TCAM}\circ\mathrm{LIF}\circ\mathrm{PU}_{2}\circ\mathrm{DFRB}(\mathbf{X}).
+\end{aligned}
+\label{eq:sshb}
+\end{equation}
+The PixelUnshuffle / Compress pair is the network-scale instance
+of P1: the same signal is decomposed into a longer
+spike-temporal sequence, processed there, and recombined back to
+the spatial domain.
 
 \subsection{Training Objective and Protocol Interface}
 \label{sec:framework-loss}
@@ -636,18 +686,27 @@ acceleration is available.
   \label{fig:energy}
 \end{figure}
 
-Figure~\ref{fig:energy} reports per-image bounds. The ANN baseline
-consumes $20.75$\,mJ over the $4.51$\,GMAC inference.
-\OrbitALIF{} consumes $0.287$\,mJ in the lower bound (Loihi-2,
-Speck, Akida class substrates), a $72.3\!\times\!$ reduction, and
-$17.14$\,mJ in the upper bound (general-purpose CMOS without
-neuromorphic acceleration), a $1.21\!\times\!$ reduction. Across
-CR1 and CR2 the measured non-zero MAC ratios are
-$\bar{r}_{\rm CR1}\!=\!0.826$ and $\bar{r}_{\rm CR2}\!=\!0.823$,
-indistinguishable at two decimal places. Per-layer hooks on LIF
-and \FQS{} modules show $20$\,--\,$70\,\%$ non-zero activation,
-with \FQS{} layers higher because four of five quantization levels
-are non-zero by construction.
+\textbf{Total energy.} Figure~\ref{fig:energy} reports per-image
+bounds. The ANN baseline consumes $20.75$\,mJ over the
+$4.51$\,GMAC inference. \OrbitALIF{} consumes $0.287$\,mJ in
+the lower bound (Loihi-2, Speck, Akida class substrates), a
+$72.3\!\times\!$ reduction, and $17.14$\,mJ in the upper bound
+(general-purpose CMOS without neuromorphic acceleration), a
+$1.21\!\times\!$ reduction. Across CR1 and CR2 inferences the
+measured non-zero MAC ratios are $\bar{r}_{\rm CR1}\!=\!0.826$
+and $\bar{r}_{\rm CR2}\!=\!0.823$, indistinguishable at two decimal
+places.
+
+\textbf{Per-layer firing rates.} Forward hooks on the LIF and
+\FQS{} modules show $20$\,--\,$70\,\%$ non-zero activation along
+the analysis path. \FQS{} layers run higher because four of five
+quantization levels are non-zero by construction.
+
+\textbf{Disclosure.} The MAC counts and per-layer rates are real
+measurements. The per-operation energy constants are taken from
+the literature listed in Section~\ref{sec:exp-setup}.
+Hardware-measured power on neuromorphic platforms is deferred to
+deployment validation.
 
 \subsection{Centralized Cloud-Removal Performance}\label{sec:exp-centralized}
 
@@ -671,47 +730,6 @@ not a side effect of any one component: the ablations of
 Section~\ref{sec:exp-ablation} show that disabling either \SHAM{}
 or the dual-group \DFRB{} removes the gain entirely
 (Tab.~\ref{tab:ablation}, rows B1--B2).
-
-\begin{table}[!t]
-\centering
-\caption{Cloud-removal comparison on CUHK-CR1. Baseline numbers
-cited from~\cite{ref:cuhkcr}. Parameter counts not reported by the
-original papers are marked ``---''.}
-\label{tab:cr1-bench}
-\setlength{\tabcolsep}{4.0pt}
-\renewcommand{\arraystretch}{0.95}
-\footnotesize
-\begin{tabular}{lccc}
-\toprule
-Method                            & Params (M)    & PSNR (dB)         & SSIM              \\
-\midrule
-SpA-GAN~\cite{ref:cuhkcr}         & ---           & 20.999            & 0.5162            \\
-AMGAN-CR~\cite{ref:cuhkcr}        & ---           & 20.867            & 0.4986            \\
-CVAE~\cite{ref:cuhkcr}            & 15.56         & 24.252            & 0.7252            \\
-MemoryNet~\cite{ref:cuhkcr}       & 3.64          & 26.073            & 0.7741            \\
-MSDA-CR~\cite{ref:cuhkcr}         & 3.91          & 25.435            & 0.7483            \\
-DE-MemoryNet~\cite{ref:cuhkcr}    & ---           & $\mathbf{26.183}$ & $\mathbf{0.7746}$ \\
-DE-MSDA~\cite{ref:cuhkcr}         & ---           & 25.739            & 0.7592            \\
-\midrule
-\textbf{\OrbitALIF{} (ours)}      & \textbf{2.30} & 25.374            & 0.7728            \\
-\bottomrule
-\end{tabular}
-\vspace{-1mm}
-\end{table}
-
-\textbf{Comparison with cloud-removal baselines.}
-Tab.~\ref{tab:cr1-bench} places \OrbitALIF{} on CUHK-CR1 alongside
-seven established cloud-removal models reported
-in~\cite{ref:cuhkcr}. \OrbitALIF{} sits within $0.81$\,dB of the
-strongest cited model (DE-MemoryNet, $26.183$\,dB) while using
-$2.30$\,M parameters, fewer than the $3.64$\,M of MemoryNet, the
-$3.91$\,M of MSDA-CR, and the $15.56$\,M of CVAE. Its SSIM of
-$0.7728$ is exceeded only by the two DE-prefixed entries. The
-trade-off this table reveals underpins the energy claim of
-Section~\ref{sec:exp-energy}: at LEO power budgets the larger
-baselines are not deployable, and the most relevant figure of merit
-becomes PSNR-per-parameter, where \OrbitALIF{} sits on the Pareto
-front of the listed models.
 
 \subsection{Component Ablation}\label{sec:exp-ablation}
 
@@ -768,11 +786,13 @@ The ordering matches Section~\ref{sec:framework}: \SHAM{} and
 activation-level expression of sparsity rather than a
 feature-extractor.
 
-\textbf{Co-design evidence.} B1 ($24.777$\,dB) and B2
-($24.858$\,dB) both fall below PlainUNet at $24.872$\,dB, while
-B3 stays above. The $+0.502$\,dB margin is therefore a synergy
-across components rather than a sum of independent gains, with
-\FQS{} acting as a refinement rather than a load-bearing module.
+\textbf{Co-design evidence.} Both B1 ($24.777$\,dB) and B2
+($24.858$\,dB) fall below PlainUNet at $24.872$\,dB. Removing one
+component therefore breaks \OrbitALIF{} more than reverting to a
+plain ANN. The $+0.502$\,dB CR1 margin is not a sum of independent
+component gains but a synergy that requires all components to
+operate together. Only B3 stays above PlainUNet, indicating that
+\FQS{} is a refinement rather than a load-bearing module.
 
 \subsection{Decentralized Federated Cloud-Removal}\label{sec:exp-federated}
 
@@ -873,24 +893,25 @@ cloud removal on a Walker-Star LEO constellation. The architecture
 is organized around three principles---multi-domain decomposition,
 identity-preserving modulation, and progressive coupling---within
 an SNN-sparsity foundation. The centralized $2.30$\,M-parameter
-backbone reaches $25.37$/$23.20$\,dB on CUHK-CR1/CR2 (exceeding the
-PlainUNet baseline by $+0.50$/$+0.16$\,dB and sitting on the
-PSNR-per-parameter Pareto front of published cloud-removal models
-on the CUHK-CR1 benchmark), and cuts per-image inference energy
-from $20.75$\,mJ to $0.287$\,mJ on neuromorphic substrates
-($72.3\!\times$ reduction, $1.21\!\times$ on general-purpose CMOS). Under FedBN-on-SNN with $\alpha\!=\!0.1$,
+backbone reaches $25.37$/$23.20$\,dB on CUHK-CR1/CR2, exceeding the
+PlainUNet baseline by $+0.50$/$+0.16$\,dB, while cutting per-image
+inference energy from $20.75$\,mJ to $0.287$\,mJ on neuromorphic
+substrates ($72.3\!\times$ reduction; $1.21\!\times$ on
+general-purpose CMOS). Under FedBN-on-SNN with $\alpha\!=\!0.1$,
 \OrbitALIF{}-ANN reaches $22.679$\,dB ($+0.667$\,dB over PlainUNet)
 and \OrbitALIF{}-SNN reaches $21.886$\,dB (within $0.13$\,dB), with
 only $0.126$\,dB further degradation when heterogeneity tightens
 tenfold. Component ablation confirms the architecture is a
 co-designed whole.
 
-Future directions include closing the centralized-to-federated
-gap (e.g., $2.86$\,dB on PlainUNet at $\alpha\!=\!0.1$) via partial
-participation, momentum aggregation, or orbital-geometry-aware
-mixing matrices, and replacing the analytic energy bracket with
-hardware-measured power on neuromorphic substrates such as
-Loihi-2, Speck, or Akida.
+Future directions include (i)~moving from the paired-synthetic
+CUHK-CR benchmark to a real on-orbit corpus that captures
+instrument-specific radiometric drift, (ii)~closing the
+centralized-to-federated gap (e.g., $2.86$\,dB on PlainUNet at
+$\alpha\!=\!0.1$) via partial participation, momentum aggregation,
+or orbital-geometry-aware mixing matrices, and (iii)~replacing the
+analytic energy bracket with hardware-measured power on
+neuromorphic substrates such as Loihi-2, Speck, or Akida.
 
 % =====================================================================
 % Bibliography
