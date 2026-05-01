@@ -249,37 +249,57 @@ re-tuning.
 
 \subsection{Constellation and Problem Setup}\label{sec:sysmodel-setup}
 
-We consider a Walker-Star LEO constellation of $N\!=\!5$ orbital
-planes, each with $K\!=\!10$ satellites ($NK\!=\!50$ total), connected
-by intra-plane (quasi-stationary) and inter-plane (chain) ISLs.
-Each satellite $s_{i,k}$ holds local paired cloudy/clear image
-tiles $\mathcal{D}_{i,k}$ and participates in training without
-uploading raw observations. The global objective is to minimise
+We instantiate the four constraints of Section~\ref{sec:intro} on a
+Walker-Star LEO constellation of $N\!=\!5$ orbital planes, each with
+$K\!=\!10$ satellites and a total of $NK\!=\!50$
+nodes~\cite{ref:walker1984,ref:flsnn}. Within each plane the
+satellites maintain a stable along-track formation, so intra-plane
+inter-satellite links (ISLs) are quasi-continuous. Adjacent planes
+only meet over the polar regions, and we model the resulting
+connectivity as a length-$N$ chain in which each plane has at most
+two neighbours. This asymmetric topology is the physical reason
+aggregation must be split into an intra-plane stage and an
+inter-plane stage in Section~\ref{sec:sysmodel-procedure}.
+
+\textbf{Local data and global objective.} Each satellite $s_{i,k}$
+holds a local dataset $\mathcal{D}_{i,k}$ of paired cloudy/clear
+image tiles and participates in training without uploading raw
+observations. Let $g_x$ denote \OrbitALIF{} parameterised by
+$x\!\in\!\mathbb{R}^d$ and $\ell$ the per-pixel restoration loss
+defined in Section~\ref{sec:framework-loss}. The decentralised
+objective is to minimise the uniform average of per-satellite
+empirical losses,
 \begin{equation}
-\min_{x \in \mathbb{R}^d}
+\min_{x \in \mathbb{R}^d}\;
 f(x)
 \;=\;
-\frac{1}{NK}
-\sum_{i,k}
+\frac{1}{NK}\sum_{i,k}
 \frac{1}{|\mathcal{D}_{i,k}|}
-\!\sum_{(c,y)\in\mathcal{D}_{i,k}}\!
-\ell\!\left(g_x(c),y\right),
+\!\!\sum_{(c,y)\in\mathcal{D}_{i,k}}\!\!
+\ell\!\left(g_x(c),y\right).
 \label{eq:globalobj}
 \end{equation}
-where $g_x$ is \OrbitALIF{} and $\ell$ is defined in
-Section~\ref{sec:framework-loss}.
+Equation~\eqref{eq:globalobj} is the standard cross-silo federated
+objective~\cite{ref:fedavg}, except that no central aggregator
+exists and exchanges occur only along the constellation graph.
 
-To model satellite data heterogeneity, we use a source-level
-Dirichlet non-IID partition with $S\!=\!2$ source domains, namely
-CUHK-CR1 for thin cloud and CUHK-CR2 for thick cloud.
-Following~\cite{ref:hsu2019},
-for each source $s\!\in\!\{1,\ldots,S\}$ we draw a partition vector
+\textbf{Source-level heterogeneity model.} Different orbital planes
+see different cloud climatologies. We capture this by a
+source-level Dirichlet partition with $S\!=\!2$ domains, namely
+CUHK-CR1 (thin cloud) and CUHK-CR2 (thick cloud).
+Following~\cite{ref:hsu2019}, for each source $s$ we draw a
+partition vector
 $\mathbf{q}^{(s)}\!\sim\!\Dir(\alpha\,\mathbf{1}_{NK})$ over the
-$NK$ satellites. Satellite $s_{i,k}$ then receives fraction
+$NK$ satellites, and satellite $s_{i,k}$ then receives fraction
 $q^{(s)}_{i,k}$ of the source-$s$ tiles, with a minimum of five
-tiles per satellite enforced by post-hoc rebalancing. Under
-$\alpha\!=\!0.1$, 30 of 50 satellites hold only the five-tile floor,
-while three satellites hold $\{117,118,118\}$ samples.
+tiles per satellite enforced by post-hoc rebalancing. Smaller
+$\alpha$ produces more skewed assignments. Under $\alpha\!=\!0.1$,
+$30$ of $50$ satellites hold only the five-tile floor while three
+satellites hold $\{117,118,118\}$ tiles, which mirrors the empirical
+tail of real per-orbit cloud-type concentration. This setting is
+aggressive feature shift in the FedBN sense~\cite{ref:fedbn}, and
+Section~\ref{sec:exp-federated} also reports $\alpha\!=\!0.01$ as a
+stress test.
 
 \subsection{Decentralized Training Protocol}\label{sec:sysmodel-procedure}
 
