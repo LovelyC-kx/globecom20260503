@@ -458,15 +458,17 @@ topology; they are not proposed as new FL algorithms.
 \subsection{Experimental Setup}\label{sec:exp-setup}
 
 \textbf{Datasets.} CUHK-CR~\cite{ref:cuhkcr} provides paired
-cloudy/clear Sentinel-2 RGB tiles. CR1 (thin cloud) and CR2 (thick
+cloudy/clear sub-metre RGB tiles ($0.5$\,m spatial resolution,
+Jilin-1KF01B push-broom imager). CR1 (thin cloud) and CR2 (thick
 cloud) define the two Dirichlet source domains. All runs use
 $64\!\times\!64$ random crops for training and centre-patch evaluation.
 
 \textbf{Models.} Three matched-protocol backbones share the same
 aggregation pipeline. \OrbitALIF{}-SNN: \FQS{}-LIF, TDBN, $T\!=\!4$,
 $C\!=\!24$ ($2.30$\,M). \OrbitALIF{}-ANN: identical dataflow with
-ReLU\,+\,BN in place of \FQS{}-LIF\,+\,TDBN. PlainUNet: vanilla
-U-Net ($1.31$\,M) ablation baseline.
+ReLU replacing every \FQS{}-LIF activation; TDBN normalization is
+unchanged. PlainUNet: vanilla U-Net ($1.31$\,M) ablation baseline
+with standard 2D BatchNorm.
 
 \textbf{Training.} Centralized: $400$ epochs, AdamW lr\,$10^{-3}$
 cosine$\to$\,$10^{-7}$, $3$-epoch warmup, batch~$4$, gradient clip
@@ -614,17 +616,17 @@ PlainUNet (baseline)                 & $22.012$          & $0.6819$          & $
 identical \textsc{FedBN}\,+\,Gossip, $R\!=\!200$, $\alpha\!=\!0.1$,
 \OrbitALIF{}-ANN attains $22.679$\,dB\,/\,$0.6966$, exceeding the
 PlainUNet floor of $22.012$\,dB by $+0.667$\,dB
-($+0.0147$ SSIM)---a margin even larger than the $+0.502$\,dB CR1
-margin in the centralized regime. The \OrbitALIF{} architecture
-therefore retains its quality advantage when training is fully
-decentralized.
+($+0.0147$ SSIM). This margin is comparable in magnitude to the
+$+0.502$\,dB CR1 margin that \OrbitALIF{}-SNN attains over PlainUNet
+in the centralized regime, indicating that the architectural
+advantage holds across both activation choices and training regimes.
 
-\textbf{Spiking trade-off.}\;\;Replacing \FQS{}-LIF with ReLU\,+\,BN
-costs \OrbitALIF{}-SNN $0.793$\,dB versus the ANN variant
-($21.886$ vs $22.679$); SSIM $0.6725$ vs $0.6966$. The SNN run lands
-within $0.13$\,dB of the plain ANN PlainUNet baseline despite
-sparse spike activations and TDBN-quantized intermediates, and
-recoups its quality loss in inference energy
+\textbf{Spiking trade-off.}\;\;Replacing \FQS{}-LIF with ReLU
+(TDBN unchanged) costs \OrbitALIF{}-SNN $0.793$\,dB versus the ANN
+variant ($21.886$ vs $22.679$); SSIM $0.6725$ vs $0.6966$. The SNN
+run lands within $0.13$\,dB of the plain ANN PlainUNet baseline
+despite sparse spike activations and TDBN-quantized intermediates,
+and recoups its quality loss in inference energy
 (Section~\ref{sec:exp-energy}: $1.21\!\times$ to $72.3\!\times$
 reduction over the ANN baseline).
 
