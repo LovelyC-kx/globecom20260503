@@ -150,12 +150,15 @@ Contributions:
   attention (\SHAM{}), adaptive gated fusion (\AGFM{}), and
   spectro-temporal hyper-blocks (\SSHB{}) deliver high-fidelity spiking
   cloud removal under sparse event-driven computation.
-\item \textbf{System results.} The $2.30$\,M onboard variant improves
-  centralized cloud removal by $+0.50$\,dB and reduces inference energy
-  up to $72.3\!\times$ over a compact ANN baseline. Under
-  decentralized \textsc{FedBN}\,+\,Gossip the \OrbitALIF{}-ANN
-  variant exceeds PlainUNet by $+0.667$\,dB, while
-  \OrbitALIF{}-SNN remains within $0.13$\,dB and is robust to
+\item \textbf{System results.} \OrbitALIF{} ($2.30$\,M parameters)
+  is $1.6\!\times$ to $6.8\!\times$ smaller than the end-to-end
+  cloud-removal baselines reported on this benchmark (MemoryNet
+  $3.64$\,M, MSDA-CR $3.91$\,M, CVAE $15.56$\,M~\cite{ref:cuhkcr})
+  while attaining centralized PSNR on CUHK-CR1 within $0.06$\,dB of
+  MSDA-CR. Inference energy is reduced up to $72.3\!\times$ over a
+  matched ANN baseline. Under decentralized \textsc{FedBN}\,+\,Gossip,
+  \OrbitALIF{}-ANN exceeds PlainUNet by $+0.667$\,dB while
+  \OrbitALIF{}-SNN stays within $0.13$\,dB and is robust to
   $10\!\times$ stronger source heterogeneity.
 \end{itemize}
 
@@ -194,11 +197,14 @@ Section~\ref{sec:framework-loss}.
 
 To model satellite data heterogeneity, we use a source-level
 Dirichlet non-IID partition with $S\!=\!2$ source domains (CUHK-CR1:
-thin cloud; CUHK-CR2: thick cloud). Each satellite draws a source
-mixing vector $\mathbf{p}_{i,k}\!\sim\!\Dir(\alpha\mathbf{1}_S)$
-and samples tiles accordingly. Under $\alpha\!=\!0.1$, 30 of 50
-satellites hold only five tiles each, while three satellites hold
-$\{117,118,118\}$ samples.
+thin cloud; CUHK-CR2: thick cloud). Following~\cite{ref:hsu2019},
+for each source $s\!\in\!\{1,\ldots,S\}$ we draw a partition vector
+$\mathbf{q}^{(s)}\!\sim\!\Dir(\alpha\,\mathbf{1}_{NK})$ over the
+$NK$ satellites; satellite $s_{i,k}$ then receives fraction
+$q^{(s)}_{i,k}$ of the source-$s$ tiles, with a minimum of five
+tiles per satellite enforced by post-hoc rebalancing. Under
+$\alpha\!=\!0.1$, 30 of 50 satellites hold only the five-tile floor,
+while three satellites hold $\{117,118,118\}$ samples.
 
 \subsection{Decentralized Training Protocol}\label{sec:sysmodel-procedure}
 
@@ -874,6 +880,16 @@ S.~Boyd, A.~Ghosh, B.~Prabhakar, and D.~Shah,
 ``Randomized gossip algorithms,''
 \emph{IEEE Trans.\ Inf.\ Theory}, vol.~52, no.~6, pp.~2508--2530,
 Jun.\ 2006.
+
+% [VERIFIED] Hsu, Qi, Brown 2019.  Canonical reference for the
+% per-label Dirichlet partitioner used in nearly all subsequent
+% federated non-IID studies; here we apply it per-source rather than
+% per-label.  arXiv:1909.06335.
+\bibitem{ref:hsu2019}
+T.-M.~H.~Hsu, H.~Qi, and M.~Brown,
+``Measuring the effects of non-identical data distribution for
+federated visual classification,''
+\emph{arXiv preprint arXiv:1909.06335}, 2019.
 
 \end{thebibliography}
 
