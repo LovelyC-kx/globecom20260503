@@ -79,9 +79,9 @@ bottlenecked by narrow contact windows and limited inter-satellite
 link bandwidth. Performing cloud removal onboard closes this gap, yet
 onboard deployment must simultaneously respect four hard constraints.
 The satellite power budget allows only tens of watts for compute,
-inter-plane links are intermittent, the Walker-Star topology
-precludes global synchronization, and data heterogeneity at the
-source level differs across orbital planes.
+links are intermittent, the constellation topology influences
+aggregation strategy, and data heterogeneity at the source level
+differs across orbital planes.
 
 We present \OrbitALIF{}, the first end-to-end framework that performs
 both onboard training and onboard inference for optical cloud removal.
@@ -90,11 +90,11 @@ a FedBN-on-SNN aggregation protocol that runs over intra-plane ring
 AllReduce and inter-plane Gossip mixing. On CUHK-CR1, \OrbitALIF{}
 reaches $25.37$\,dB PSNR while reducing per-image inference energy
 from $20.75$\,mJ for an ANN baseline to $0.287$\,mJ on neuromorphic
-hardware, a $72.3$-fold reduction. Under Dirichlet ($\alpha\!=\!0.1$)
-source heterogeneity on a $5\!\times\!10$ constellation, the
-architectural advantage carries over to the federated setting and
-stays within $0.13$\,dB of the ANN counterpart, degrading only
-$0.126$\,dB when heterogeneity tightens tenfold.
+hardware, a $72.3$-fold reduction. Under Dirichlet source
+heterogeneity of $\alpha\!=\!0.1$, the architectural advantage
+carries over to the federated setting and stays within $0.13$\,dB of
+the ANN counterpart, degrading only $0.126$\,dB when heterogeneity
+comes to $\alpha\!=\!0.01$.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -107,35 +107,25 @@ federated learning, onboard satellite computing.
 % =====================================================================
 \section{Introduction}\label{sec:intro}
 
-Low-Earth-orbit (LEO) optical satellites such as Sentinel-2 and
-Landsat-9 continuously image the Earth surface and feed applications
-ranging from rapid disaster response~\cite{ref:earthobs2} to
-environmental monitoring and precision
-agriculture~\cite{ref:earthobs1}. A persistent obstacle in this
-pipeline is cloud contamination. Multi-year MODIS climatology reports
-that about $67\%$ of the Earth surface is covered by cloud at any
-given moment~\cite{ref:king2013cloud}, and a substantial fraction of
-every acquired tile is routinely discarded as
-unusable~\cite{ref:cuhkcr,ref:ebel2021multisensor}. Cloud removal
-seeks to recover the underlying surface from a cloudy observation,
-which is a dense per-pixel regression task rather than a categorical
-prediction~\cite{ref:cuhkcr}. The conventional pipeline runs in two
-stages. Each satellite stores raw imagery, downlinks it during one
-of the few daily ground-station contact windows, and a server cluster
-performs cloud removal in
-batch~\cite{ref:earthobs1,ref:onboardfl-bottleneck}. Three properties
-of LEO operation make this pipeline a bottleneck. Contact windows are
-short, often under ten minutes per pass for a given
-station~\cite{ref:onboardfl-bottleneck}. Inter-satellite link and
-downlink bandwidth are limited compared with terrestrial
-networks~\cite{ref:spacecpn1}. End-to-end latency from acquisition to
-actionable product, typically measured in hours, is incompatible with
-disaster-response decisions that must be made in
+Low-Earth-orbit (LEO) optical satellites continuously image the
+Earth surface, but cloud contamination renders large fractions of
+each pass unusable: roughly $67\%$ of the Earth surface is
+cloud-covered at any given
+moment~\cite{ref:king2013cloud,ref:earthobs1}, and a substantial
+share of every acquired tile is
+discarded~\cite{ref:cuhkcr,ref:ebel2021multisensor}. Cloud removal
+recovers the underlying surface from a cloudy observation, a dense
+per-pixel regression task. Conventional pipelines downlink raw
+imagery during the few-minute daily contact windows and run cloud
+removal on the
+ground~\cite{ref:earthobs1,ref:onboardfl-bottleneck}, an
+end-to-end latency of hours that is incompatible with
+disaster-response decisions made in
 minutes~\cite{ref:earthobs2}.
 
-Moving cloud removal onboard removes the downlink and the multi-hour
-latency, but the deployment must simultaneously respect four
-constraints that arise from the physics of LEO operation.
+Moving cloud removal onboard removes the downlink and the latency,
+but the deployment must respect four constraints from the physics
+of LEO operation.
 
 \textbf{Power.} A LEO Earth-observation bus has $100$--$300$\,W
 total~\cite{ref:spacecpn1}, leaving tens of watts for compute after
@@ -158,39 +148,20 @@ cloud climatologies and sensor drifts, so each satellite holds a
 source-level non-IID dataset distinct from the class-label
 imbalance studied in standard FL~\cite{ref:hsu2019}.
 
-These four constraints are coupled. A practical onboard
-cloud-removal system must co-design the model, the aggregation
-protocol, and the task formulation.
+No prior approach satisfies all four constraints jointly. A
+ground-trained ANN~\cite{ref:cuhkcr} costs $\sim\!4.5$\,GMACs per
+$64\!\times\!64$ patch, or $20.75$\,mJ at $4.6$\,pJ/MAC on $45$\,nm
+CMOS~\cite{ref:horowitz2014}, beyond the onboard envelope. Standard
+FedAvg~\cite{ref:fedavg} needs a ground-side server and reintroduces
+the downlink bottleneck. FLSNN~\cite{ref:flsnn} runs decentralized
+SNN training on a Walker-Star constellation but only for
+classification, leaving dense pixel regression, multi-scale texture
+recovery, and source-level non-IID open, and inference energy
+unoptimized. We instead co-design model, protocol, and task at once.
 
-Existing approaches each address a subset of the four constraints
-but fail to satisfy them jointly.
-
-\textbf{Model side.} Lifting a state-of-the-art cloud-removal
-ANN~\cite{ref:cuhkcr} onto the satellite costs $\sim\!4.5$\,GMACs
-per $64\!\times\!64$ patch, or $20.75$\,mJ at $4.6$\,pJ/MAC on
-$45$\,nm CMOS~\cite{ref:horowitz2014}, exceeding the watt-level
-onboard envelope. Training only on a single satellite respects the
-link constraint but never sees other orbits' cloud distributions
-and fails to generalize.
-
-\textbf{Protocol side.} Standard FedAvg~\cite{ref:fedavg} requires a
-central server, which in LEO sits on the ground and reintroduces
-the downlink bottleneck. FLSNN~\cite{ref:flsnn} ran decentralized
-federated SNN training on a Walker-Star constellation but only for
-classification. Cloud removal differs in dense pixel regression,
-multi-scale texture recovery, and source-level (rather than
-label-level) non-IID, and inference energy was not jointly
-optimized.
-
-These observations point to a co-designed solution at three layers,
-namely a model that respects the power constraint, an aggregation
-protocol that respects the link and topology constraints, and a task
-formulation that exposes source-level heterogeneity.
-
-To meet these three layers jointly, we present \OrbitALIF{}, the
-first end-to-end framework that performs both onboard training and
-onboard inference for optical cloud removal. Our contributions are
-threefold.
+We present \OrbitALIF{}, the first end-to-end framework that
+performs both onboard training and onboard inference for optical
+cloud removal. Our contributions are threefold.
 \textbf{C1: Energy-first SNN architecture.} \OrbitALIF{} is a
 $2.30$\,M-parameter spiking neural network for dense pixel
 restoration. On CUHK-CR1 it stays within $0.81$\,dB PSNR of the
@@ -223,26 +194,19 @@ re-tuning.
 
 \subsection{Constellation and Problem Setup}\label{sec:sysmodel-setup}
 
-We instantiate the four constraints of Section~\ref{sec:intro} on a
-Walker-Star LEO constellation of $N\!=\!5$ orbital planes, each with
-$K\!=\!10$ satellites and a total of $NK\!=\!50$
-nodes~\cite{ref:walker1984,ref:flsnn}. Within each plane the
-satellites maintain a stable along-track formation, so intra-plane
-inter-satellite links (ISLs) are quasi-continuous. Adjacent planes
-only meet over the polar regions, and we model the resulting
-connectivity as a length-$N$ chain in which each plane has at most
-two neighbours. This asymmetric topology is the physical reason
-aggregation must be split into an intra-plane stage and an
-inter-plane stage in Section~\ref{sec:sysmodel-procedure}.
+We consider a Walker-Star LEO constellation of $N\!=\!5$ planes,
+each with $K\!=\!10$ satellites for $NK\!=\!50$
+nodes~\cite{ref:walker1984,ref:flsnn}. Intra-plane ISLs are
+quasi-continuous, and inter-plane links open only at polar
+encounters, which we model as a length-$N$ chain.
 
 \textbf{Local data and global objective.} Each satellite $s_{i,k}$
 holds a local dataset $\mathcal{D}_{i,k}$ of paired cloudy/clear
-image tiles and participates in training without uploading raw
-observations. Let $g_x$ denote \OrbitALIF{} parameterized by
+tiles and trains without uploading raw observations. With
+$g_x$ denoting \OrbitALIF{} parameterized by
 $x\!\in\!\mathbb{R}^d$ and $\ell$ the per-pixel restoration loss
-defined in Section~\ref{sec:framework-loss}. The decentralized
-objective is to minimize the uniform average of per-satellite
-empirical losses,
+defined in Section~\ref{sec:framework-loss}, the decentralized
+objective is
 \begin{equation}
 \min_{x \in \mathbb{R}^d}\;
 f(x)
@@ -250,88 +214,55 @@ f(x)
 \frac{1}{NK}\sum_{i,k}
 \frac{1}{|\mathcal{D}_{i,k}|}
 \!\!\sum_{(c,y)\in\mathcal{D}_{i,k}}\!\!
-\ell\!\left(g_x(c),y\right).
+\ell\!\left(g_x(c),y\right),
 \label{eq:globalobj}
 \end{equation}
-Equation~\eqref{eq:globalobj} is the standard cross-silo federated
-objective~\cite{ref:fedavg}, except that no central aggregator
-exists and exchanges occur only along the constellation graph.
+which is the cross-silo objective~\cite{ref:fedavg} restricted to
+exchanges along the constellation graph.
 
-\textbf{Source-level heterogeneity model.} Different orbital planes
-see different cloud climatologies. We capture this by a
-source-level Dirichlet partition with $S\!=\!2$ domains, namely
-CUHK-CR1 (thin cloud) and CUHK-CR2 (thick cloud).
-Following~\cite{ref:hsu2019}, for each source $s$ we draw a
-partition vector
-$\mathbf{q}^{(s)}\!\sim\!\Dir(\alpha\,\mathbf{1}_{NK})$ over the
-$NK$ satellites, and satellite $s_{i,k}$ then receives fraction
-$q^{(s)}_{i,k}$ of the source-$s$ tiles, with a minimum of five
-tiles per satellite enforced by post-hoc rebalancing. Smaller
-$\alpha$ produces more skewed assignments. Under $\alpha\!=\!0.1$,
-$30$ of $50$ satellites hold only the five-tile floor while three
-satellites hold $\{117,118,118\}$ tiles, which mirrors the empirical
-tail of real per-orbit cloud-type concentration. This setting is
-aggressive feature shift in the FedBN sense~\cite{ref:fedbn}, and
-Section~\ref{sec:exp-federated} also reports $\alpha\!=\!0.01$ as a
-stress test.
+\textbf{Source-level heterogeneity.} Different orbits see different
+cloud climatologies. We model this with a source-level Dirichlet
+partition over $S\!=\!2$ domains (CUHK-CR1 thin and CUHK-CR2 thick
+cloud)~\cite{ref:hsu2019}: for each source $s$ a vector
+$\mathbf{q}^{(s)}\!\sim\!\Dir(\alpha\,\mathbf{1}_{NK})$ assigns
+fractions, post-hoc rebalanced to a five-tile floor per satellite.
+$\alpha\!=\!0.1$ is aggressive feature shift in the FedBN
+sense~\cite{ref:fedbn}, and Section~\ref{sec:exp-federated}
+reports $\alpha\!=\!0.01$ as a stress test.
 
 \subsection{Decentralized Training Protocol}\label{sec:sysmodel-procedure}
 
-The protocol must respect the intra-plane / inter-plane asymmetry
-identified in Section~\ref{sec:sysmodel-setup} and the BN locality
-required by source-level heterogeneity. Training proceeds for
-$R\!=\!200$ rounds, and each round executes four steps in sequence.
-
-\textbf{(S1) Local update.} Each satellite performs $E\!=\!2$
-AdamW steps on its local dataset $\mathcal{D}_{i,k}$, producing
-$x_{i,k}^{(r,E)}$. No exchange occurs in this step.
-
-\textbf{(S2) Intra-plane ring AllReduce.} Same-plane satellites
-share quasi-continuous links, so plane $i$ runs an exact
-ring-AllReduce over its $K$ members and replaces each local copy
-with the plane average,
+Training runs for $R\!=\!200$ rounds. Each round has four steps.
+(S1)~Each satellite takes $E\!=\!2$ local AdamW steps. (S2)~Each
+plane $i$ runs exact ring-AllReduce on its $K$ members,
 \begin{equation}
 x_i^{(r+\frac{1}{2})}
 \;=\;
-\frac{1}{K}\sum_{k \in \mathcal{K}_i} x_{i,k}^{(r,E)}.
+\frac{1}{K}\sum_{k \in \mathcal{K}_i} x_{i,k}^{(r,E)},
 \label{eq:intraplane}
 \end{equation}
-After (S2) every satellite within a plane carries identical non-BN
-weights, so the inter-plane stage can treat each plane as a single
-logical node.
-
-\textbf{(S3) Inter-plane Gossip.} The chain topology only allows
-one Gossip step per round between adjacent planes. We use the
-standard Metropolis mixing matrix~\cite{ref:gossip-boyd},
+after which every plane is one logical node. (S3)~Adjacent planes
+exchange a single Gossip step under the standard Metropolis
+matrix~\cite{ref:gossip-boyd},
 \begin{equation}
 x_i^{(r+1)}
 \;=\;
 \sum_{j \in \mathcal{N}} W_{ij}\, x_j^{(r+\frac{1}{2})},
-\quad i \in \mathcal{N},
 \label{eq:gossip}
 \end{equation}
-with $W_{ij}\!=\!1/(\max(d_i,d_j)\!+\!1)$ for adjacent planes and
-$W_{ii}\!=\!1\!-\!\sum_{j\sim i} W_{ij}$. The $N\!=\!5$ chain has
-off-diagonals $\tfrac{1}{3}$ and self-weights
-$\{\tfrac{2}{3},\tfrac{1}{3},\tfrac{1}{3},\tfrac{1}{3},\tfrac{2}{3}\}$.
+with $W_{ij}\!=\!1/(\max(d_i,d_j)\!+\!1)$ on adjacent edges and
+self-weights $\{\tfrac{2}{3},\tfrac{1}{3},\tfrac{1}{3},\tfrac{1}{3},\tfrac{2}{3}\}$
+on the $N\!=\!5$ chain. (S4)~Plane $i$ broadcasts $x_i^{(r+1)}$ to
+its members.
 
-\textbf{(S4) Intra-plane broadcast.} Plane $i$ broadcasts
-$x_i^{(r+1)}$ to its $K$ members, restoring the property that each
-plane carries one shared weight set at the start of round $r+1$.
-
-\textbf{FedBN-on-SNN.} Steps (S2) and (S3) only mix \emph{shared}
+\textbf{FedBN-on-SNN.} (S2) and (S3) mix only \emph{shared}
 parameters. Every BN-tagged tensor stays local~\cite{ref:fedbn},
-covering the affine pair $(\gamma,\beta)$, the running statistics,
-and the threshold parameters of spikingjelly's Threshold-Dependent
-BN (TDBN). This lets each satellite's normalization absorb the
-local cloud-thickness and radiometric drift introduced in
-Section~\ref{sec:sysmodel-setup}.
-
-\textbf{Communication cost.} Per-round inter-plane traffic equals
-$4\!\cdot\!d_{\rm shared}\!\cdot\!2\!\cdot\!(N\!-\!1)$ bytes (fp32
-shared weights, both directions, $N\!-\!1\!=\!4$ chain edges). The
-$R\!=\!200$-round cumulative volume is reported in
-Table~\ref{tab:federated}.
+including the affine pair, running statistics, and the threshold
+parameters of spikingjelly's Threshold-Dependent BN. Per-round
+inter-plane traffic is
+$4\!\cdot\!d_{\rm shared}\!\cdot\!2\!\cdot\!(N\!-\!1)$ bytes (fp32,
+both directions, $N\!-\!1\!=\!4$ edges), with the cumulative volume
+reported in Table~\ref{tab:federated}.
 
 % =====================================================================
 % Section III: The ORBITALIF Framework
