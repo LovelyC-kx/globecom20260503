@@ -309,9 +309,222 @@ analysis. Section~\ref{sec:conclusion} concludes this paper.
 % =====================================================================
 % Section II / III / IV / V — TO BE COMPOSED BY THE USER
 % =====================================================================
+% =====================================================================
 % Section II: System Model
+% =====================================================================
 \section{System Model}\label{sec:sysmodel}
-\textit{[Section to be written by the user.]}
+
+\subsection{LEO Constellation and Inter-Satellite Links}\label{sec:sysmodel-constellation}
+
+We consider a Walker-Star low-Earth-orbit (LEO) satellite constellation
+denoted by
+\begin{equation}
+\mathcal{S}
+\;=\;
+\left\{ s_{i,k} : i \in \mathcal{N}, \; k \in \mathcal{K}_i \right\},
+\label{eq:constellation}
+\end{equation}
+where $\mathcal{N}$ is the set of orbital planes, $N\!=\!|\mathcal{N}|$
+is the number of planes, and $\mathcal{K}_i$ is the set of satellites
+in the $i$-th plane.  For notational simplicity we assume each plane
+contains the same number of satellites,
+$|\mathcal{K}_i|\!=\!K$ for all $i\!\in\!\mathcal{N}$.
+Each satellite $s_{i,k}$ is equipped with inter-satellite laser links
+(ISLs) for in-constellation model exchange. According to the
+connection pattern, ISLs are divided into two categories: intra-plane
+links and inter-plane links.
+
+Intra-plane links connect adjacent satellites within the same orbital
+plane. Since satellites in the same plane have relatively stable
+geometry, these links are quasi-stationary across orbital periods and
+are suitable for reliable ring-style aggregation. Inter-plane links
+connect satellites from different orbital planes. Their availability
+is more time-varying because of relative orbital motion, visibility
+constraints, and Doppler effects. Following the Walker-Star setting
+adopted in prior decentralized satellite
+learning~\cite{ref:flsnn}, we instantiate $N\!=\!5$ and $K\!=\!10$,
+yielding $NK\!=\!50$ satellites in total. For inter-plane
+communication, we adopt a fixed chain topology as a simplified mixing
+graph.
+
+\subsection{Federated Optical Cloud-Removal Problem}\label{sec:sysmodel-problem}
+
+Each satellite $s_{i,k}$ holds a local paired image dataset
+\begin{equation}
+\mathcal{D}_{i,k}
+\;=\;
+\left\{ (c_n, y_n) \right\}_{n=1}^{|\mathcal{D}_{i,k}|},
+\label{eq:dataset}
+\end{equation}
+where $c_n\!\in\!\mathbb{R}^{3 \times H \times W}$ denotes a cloudy
+image tile and $y_n\!\in\!\mathbb{R}^{3 \times H \times W}$ denotes
+the corresponding cloud-free reference tile.  Let
+$g_x : \mathbb{R}^{3 \times H \times W} \!\rightarrow\!
+\mathbb{R}^{3 \times H \times W}$ be the \OrbitALIF{} cloud-removal
+model parameterized by $x \!\in\! \mathbb{R}^d$, where
+$d \!\approx\! 2.30 \!\times\! 10^6$ for the onboard deployment
+variant. Let $\ell(g_x(c), y)$ denote the pixel-level reconstruction
+loss, defined in Section~\ref{sec:framework-loss}. The global training
+objective over the whole constellation is to minimise the empirical
+risk
+\begin{equation}
+\min_{x \in \mathbb{R}^d}
+f(x)
+\;=\;
+\frac{1}{NK}
+\sum_{i \in \mathcal{N}}
+\sum_{k \in \mathcal{K}_i}
+f_{i,k}(x),
+\label{eq:globalobj}
+\end{equation}
+where the local empirical risk on satellite $s_{i,k}$ is
+\begin{equation}
+f_{i,k}(x)
+\;=\;
+\frac{1}{|\mathcal{D}_{i,k}|}
+\sum_{(c, y) \in \mathcal{D}_{i,k}}
+\ell\!\left( g_x(c), \, y \right).
+\label{eq:localobj}
+\end{equation}
+
+A centralised solution would require all paired cloudy/clear image
+tiles to be downlinked to ground servers for training. This
+contradicts the bandwidth and latency constraints discussed in
+Section~\ref{sec:intro}. We therefore adopt a fully onboard
+decentralised training strategy, where satellites compute local
+updates on their own data and exchange model parameters through ISLs
+without uploading raw observations.
+
+\subsection{Decentralised Onboard Training Procedure}\label{sec:sysmodel-procedure}
+
+The training proceeds in $T$ global communication rounds. Round $0$
+starts from a common random initialisation $x^{(0)}\!\in\!\mathbb{R}^d$
+that is broadcast to every satellite once at deployment time. Each
+subsequent round $t\!\in\!\{0, \ldots, T-1\}$ then consists of four
+steps.
+
+\subsubsection*{S1: Local update}
+At the beginning of round $t$, each satellite initialises its model
+from its plane-level broadcast model:
+\begin{equation*}
+x_{i,k}^{(t, 0)} \;=\; x_i^{(t)},
+\end{equation*}
+with $x_i^{(0)}\!=\!x^{(0)}$ at round $t\!=\!0$.
+Satellite $s_{i,k}$ then performs $E$ local AdamW steps on its dataset
+$\mathcal{D}_{i,k}$:
+\begin{equation}
+x_{i,k}^{(t, e+1)}
+\;=\;
+\mathrm{AdamW}\!\left(
+x_{i,k}^{(t, e)},
+\,
+\nabla \tilde{f}_{i,k}\!\left( x_{i,k}^{(t, e)} \right),
+\,
+\eta_t
+\right),
+\quad e\!=\!0, \ldots, E\!-\!1,
+\label{eq:localstep}
+\end{equation}
+where $\nabla\tilde{f}_{i,k}$ is the mini-batch stochastic estimate
+of $\nabla f_{i,k}$ and $\eta_t$ is the learning rate at round $t$.
+The notation $\mathrm{AdamW}(\cdot,\cdot,\cdot)$ stands for the
+abstract local-update operator implemented by the AdamW optimiser;
+replacing it by SGD or any other optimiser leaves the rest of the
+training procedure unchanged.
+
+\subsubsection*{S2: Intra-plane aggregation}
+After local updates, the $K$ satellites in each orbital plane perform
+ring AllReduce over quasi-stationary intra-plane ISLs. This produces
+the plane-level consensus model
+\begin{equation}
+x_i^{(t + \frac{1}{2})}
+\;=\;
+\frac{1}{K}
+\sum_{k \in \mathcal{K}_i}
+x_{i,k}^{(t, E)}.
+\label{eq:intraplane}
+\end{equation}
+To accommodate source-level feature heterogeneity, we adopt the
+\textsc{FedBN}~\cite{ref:fedbn} normalisation protocol: only
+batch-normalisation \emph{affine} parameters $(\gamma, \beta)$ are
+included in $x_{i,k}^{(t,E)}$ and therefore enter the average in
+(\ref{eq:intraplane}); the BN \emph{running statistics}
+(running mean and running variance) are kept per-satellite and are
+not exchanged through either ring AllReduce or, later, the inter-plane
+Gossip step.
+
+\subsubsection*{S3: Inter-plane Gossip mixing}
+After intra-plane aggregation, each orbital plane obtains a plane-level
+model $x_i^{(t+\frac{1}{2})}$. The $N$ plane-level models are then
+mixed through single-step Gossip averaging~\cite{ref:gossip-boyd} over
+the inter-plane chain topology:
+\begin{equation}
+x_i^{(t+1)}
+\;=\;
+\sum_{j \in \mathcal{N}}
+W_{ij} \, x_j^{(t + \frac{1}{2})},
+\quad i \in \mathcal{N},
+\label{eq:gossip}
+\end{equation}
+where $W \!\in\! \mathbb{R}^{N \times N}$ is a symmetric doubly
+stochastic mixing matrix satisfying
+\begin{equation*}
+W \mathbf{1} \!=\! \mathbf{1}, \quad
+\mathbf{1}^{\!\top} W \!=\! \mathbf{1}^{\!\top}, \quad
+W \!=\! W^{\!\top}.
+\end{equation*}
+Consistent with the \textsc{FedBN} convention adopted in S2, the
+Gossip step is applied only to shared restoration parameters
+(convolutional weights, BN affine parameters, and other dense layer
+weights). The BN running statistics remain local. In this way, the
+constellation shares restoration knowledge across orbital planes while
+avoiding the destructive averaging of feature statistics that would
+arise under pure FedAvg-style aggregation when satellites observe
+different cloud thicknesses, sensors, and atmospheric conditions.
+
+\subsubsection*{S4: Intra-plane broadcast}
+Finally, each orbital plane broadcasts the mixed model
+$x_i^{(t+1)}$ to all satellites $s_{i,k}\!\in\!\mathcal{K}_i$ in the
+same plane. This model is used as the initialisation for the next
+communication round. The above four steps complete one round of
+decentralised onboard training.
+
+\subsection{Source-Level Dirichlet Non-IID Partition}\label{sec:sysmodel-dirichlet}
+
+To simulate the natural source-level feature heterogeneity of
+satellite imagery, we do not use the conventional label-level Dirichlet
+partition commonly adopted in classification tasks. Instead, we
+construct a source-level non-IID partition over the training pool.
+Specifically, the joint training set is divided into $S\!=\!2$ source
+domains: CUHK-CR1 represents thin-cloud scenes, and CUHK-CR2
+represents thick-cloud scenes~\cite{ref:cuhkcr}. For each satellite
+$s_{i,k}$, we draw a source mixing vector
+\begin{equation}
+\mathbf{p}_{i,k}
+\;=\;
+\left( p_{i,k}^{(1)}, \, p_{i,k}^{(2)} \right)
+\;\sim\;
+\Dir\!\left( \alpha \mathbf{1}_S \right).
+\label{eq:dirichlet}
+\end{equation}
+Satellite $s_{i,k}$ then samples image tiles from the $s$-th source
+domain in proportion to $p_{i,k}^{(s)}$. To ensure executable local
+training, each satellite is assigned at least five training samples.
+
+The Dirichlet concentration parameter $\alpha$ controls the strength
+of source-level heterogeneity. A smaller $\alpha$ produces more
+concentrated single-source clients, where some satellites mainly hold
+thin-cloud samples while others mainly hold thick-cloud samples. A
+larger $\alpha$ yields a more balanced source mixture and approaches
+an IID-like setting. We use $\alpha\!=\!0.1$ as the default
+configuration. Under this setting, $30$ out of $50$ satellites hold
+only the minimum of five samples ($60\%$ of the constellation), while
+three satellites individually hold more than $100$ samples, with the
+actual partition log recording the three largest client sizes as
+$\{117, 118, 118\}$. This partition reflects both the data sparsity
+and source-level heterogeneity that may arise in onboard cloud-removal
+scenarios. Sensitivity to $\alpha$ is reported in
+Section~\ref{sec:exp-federated}.
 
 % Section III: Framework
 \section{The \OrbitALIF{} Framework}\label{sec:framework}
