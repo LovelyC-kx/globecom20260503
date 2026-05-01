@@ -693,28 +693,89 @@ aggregation.
 
 \textbf{Datasets.} CUHK-CR~\cite{ref:cuhkcr} provides paired
 cloudy/clear Sentinel-2 RGB tiles. CR1 (thin cloud) and CR2 (thick
-cloud) define the two Dirichlet source domains. All runs use
-$64\!\times\!64$ random crops for training and centre-patch evaluation.
+cloud) define the two Dirichlet source domains. Training and
+evaluation use $64\!\times\!64$ random and centre crops
+respectively.
 
 \textbf{Models.} Three matched-protocol backbones share the same
-aggregation pipeline. \OrbitALIF{}-SNN: \FQS{}-LIF, TDBN, $T\!=\!4$,
-$C\!=\!24$ ($2.30$\,M). \OrbitALIF{}-ANN: identical dataflow with
-ReLU\,+\,BN in place of \FQS{}-LIF\,+\,TDBN. PlainUNet: vanilla
-U-Net ($1.31$\,M) ablation baseline.
+aggregation pipeline. \OrbitALIF{}-SNN uses \FQS{}-LIF, TDBN,
+$T\!=\!4$, and base width $C\!=\!24$ for $2.30$\,M parameters.
+\OrbitALIF{}-ANN replaces every \FQS{}-LIF with ReLU and every TDBN
+with BN, keeping the same dataflow. PlainUNet is a vanilla U-Net
+baseline used for ablation reference.
 
-\textbf{Training.} Centralized: $400$ epochs, AdamW lr\,$10^{-3}$
-cosine$\to$\,$10^{-7}$, $3$-epoch warmup, batch~$4$, gradient clip
-$\|g\|_2\!\le\!1$. Ablations: $300$ epochs. Federated: $R\!=\!200$
-rounds, $E\!=\!2$ local epochs, $\alpha\!=\!0.1$. Metrics: PSNR,
-SSIM, cumulative inter-plane comm.\ (MB), wall time (h). Energy
-analysis uses forward hooks on $32$ CR1 test patches.
+\textbf{Training.} Centralized runs use $400$ epochs of AdamW with
+$10^{-3}\!\to\!10^{-7}$ cosine learning rate, three warmup epochs,
+batch size four, and gradient clipping at $\|g\|_2\!\le\!1$.
+Ablation runs use $300$ epochs. Federated runs use $R\!=\!200$
+rounds of $E\!=\!2$ local steps under Dirichlet
+$\alpha\!=\!0.1$. We report PSNR, SSIM, cumulative inter-plane
+communication in MB, and wall time.
+
+\textbf{Energy measurement.} A forward hook on every
+\texttt{Conv2d} and \texttt{Linear} records the per-call MAC count
+and input non-zero rate $r_\ell$, accumulated over $32$ CUHK-CR1
+test patches at $64\!\times\!64$. Two per-operation constants are
+taken from the literature: $4.6$\,pJ/MAC for the ANN baseline
+(Horowitz, $45$\,nm CMOS~\cite{ref:horowitz2014}) and $77$\,fJ/SOP
+for SNN deployment on neuromorphic substrates such as
+Loihi-2~\cite{ref:loihi}, the value adopted by
+FLSNN~\cite{ref:flsnn} and ESDNet~\cite{ref:esdnet}. Per-image SNN
+energy is $\sum_\ell \mathrm{MAC}_\ell\,r_\ell\,e_{\rm op}$.
+
+\subsection{Per-Image Inference Energy}\label{sec:exp-energy}
+
+The energy claim of Section~\ref{sec:intro} can be misreported in
+two ways. The number of synaptic operations a trained SNN actually
+executes is much smaller than the worst-case sparse arithmetic
+that pure FLOPs counting suggests. The per-operation energy
+constant also differs by roughly $60\!\times$ between standard
+CMOS and neuromorphic substrates, so a single multiplier cannot
+cover both deployment scenarios. We therefore measure the real
+per-layer non-zero rates on CR1 (Section~\ref{sec:exp-setup}) and
+report a dual bound, with the lower bound matching neuromorphic
+deployment and the upper bound assuming no neuromorphic
+acceleration is available.
+
+\begin{figure}[!htbp]
+  \centering
+  \includegraphics[width=\columnwidth]{fig6_energy_bars.pdf}
+  \caption{Per-image estimated inference energy on a
+  $64\!\times\!64$ CUHK-CR1 centre patch. ANN baseline at
+  $4.6$\,pJ/MAC. \OrbitALIF{} is reported as a dual bound, with the
+  lower bound at $77$\,fJ/SOP for neuromorphic substrates and the
+  upper bound charging every non-zero MAC at the full ANN rate.
+  Multipliers vs.\ ANN are annotated above each bar.}
+  \label{fig:energy}
+\end{figure}
+
+\textbf{Total energy.} The ANN baseline consumes $20.75$\,mJ over
+the $4.51$\,GMAC inference. \OrbitALIF{} consumes $0.287$\,mJ in
+the lower bound (Loihi-2, Speck, Akida class substrates), a
+$72.3\!\times\!$ reduction, and $17.14$\,mJ in the upper bound
+(general-purpose CMOS without neuromorphic acceleration), a
+$1.21\!\times\!$ reduction. Across CR1 and CR2 inferences the
+measured non-zero MAC ratios are $\bar{r}_{\rm CR1}\!=\!0.826$
+and $\bar{r}_{\rm CR2}\!=\!0.823$, indistinguishable at two decimal
+places.
+
+\textbf{Per-layer firing rates.} Forward hooks on the LIF and
+\FQS{} modules show $20$\,--\,$70\,\%$ non-zero activation along
+the analysis path. \FQS{} layers run higher because four of five
+quantization levels are non-zero by construction.
+
+\textbf{Disclosure.} The MAC counts and per-layer rates are real
+measurements. The per-operation energy constants are taken from
+the literature listed in Section~\ref{sec:exp-setup}.
+Hardware-measured power on neuromorphic platforms is deferred to
+deployment validation.
 
 \subsection{Centralized Cloud-Removal Performance}\label{sec:exp-centralized}
 
 Under identical optimization (AdamW, lr\,$10^{-3}$, cosine,
 $400$ epochs, batch~$4$), \OrbitALIF{} attains $25.374$\,dB on
-CUHK-CR1 and $23.197$\,dB on CUHK-CR2, exceeding the compact
-PlainUNet baseline by $+0.502$\,dB on CR1 and $+0.157$\,dB on CR2
+CUHK-CR1 and $23.197$\,dB on CUHK-CR2, exceeding the PlainUNet
+baseline by $+0.502$\,dB on CR1 and $+0.157$\,dB on CR2
 despite operating with sparse spike activations and TDBN-quantized
 intermediate features. The smaller CR2 margin reflects the harder
 restoration ceiling under thick-cloud occlusion. The CR1 gain is
@@ -810,7 +871,7 @@ deploy three matched-protocol backbones on the
 $5\!\times\!10\!=\!50$-satellite Walker-Star constellation under
 source-level Dirichlet $\alpha\!=\!0.1$ for $R\!=\!200$ rounds.
 \OrbitALIF{}-SNN is the full spiking variant. \OrbitALIF{}-ANN replaces
-every \FQS{}-LIF with ReLU. PlainUNet is the compact ANN U-Net
+every \FQS{}-LIF with ReLU. PlainUNet is the ANN U-Net
 baseline. All three share the identical aggregation pipeline of
 Section~\ref{sec:sysmodel-procedure} and differ only in the
 per-satellite network, so any performance gap is attributable to the
@@ -874,60 +935,6 @@ of the $\alpha\!=\!0.1$ partition itself: $30/50$ satellites hold
 only five tiles each, so single satellites cannot reconstruct the
 full encoder representation under $R\!=\!200$ Gossip rounds.
 
-\subsection{Energy Analysis}\label{sec:exp-energy}
-
-\begin{figure}[!htbp]
-  \centering
-  \includegraphics[width=\columnwidth]{fig6_energy_bars.pdf}
-  \caption{Per-image estimated inference energy on a
-  $64\!\times\!64$ CUHK-CR1 centre patch. ANN baseline at
-  $4.6$\,pJ/MAC (Horowitz, ISSCC 2014, $45$\,nm CMOS), and \OrbitALIF{}
-  is reported as a dual bound: a \emph{conservative upper bound}
-  that charges every non-zero MAC at the full ANN rate, and a
-  \emph{deployment-target lower bound} at $77$\,fJ/SOP for
-  neuromorphic substrates. Multipliers vs.\ ANN are annotated above
-  each bar.}
-  \label{fig:energy}
-\end{figure}
-
-\textbf{Methodology and disclosure.}\;\;Per-image inference energy is
-\emph{estimated}, not hardware-measured. We hook every
-\texttt{Conv2d}/\texttt{Linear} layer to count MACs and the input
-non-zero rate $r_\ell$, and every LIF / \FQS{} module to record the
-output firing rate, on $32$ CUHK-CR1 test patches at
-$64\!\times\!64$. The MAC counts and per-layer rates are real
-measurements, and the per-operation energy constants are taken from
-the literature. We use $4.6$\,pJ/MAC for the ANN baseline (Horowitz, ISSCC
-2014, $45$\,nm CMOS) and $77$\,fJ/SOP for the SNN deployment estimate,
-the constant adopted by FLSNN~\cite{ref:flsnn} and
-ESDNet~\cite{ref:esdnet} for neuromorphic substrates such as
-Loihi-2~\cite{ref:loihi}. Hardware-measured power on actual
-neuromorphic platforms is deferred to deployment validation.
-
-\textbf{Total energy bounds.}\;\;Figure~\ref{fig:energy} reports
-per-image bounds. The ANN baseline at $4.6$\,pJ/MAC over the
-$4.51$\,GMAC inference consumes $20.75$\,mJ. \OrbitALIF{} is reported
-as a dual bound. The \emph{conservative upper bound} of $17.14$\,mJ
-($1.21\!\times\!$ reduction) charges every non-zero MAC at the full
-$4.6$\,pJ ANN rate and is achievable without any neuromorphic
-hardware. The \emph{deployment-target lower bound} of
-$0.287$\,mJ ($72.3\!\times\!$ reduction) uses $77$\,fJ/SOP and
-applies to substrates that support the full SOP / spike abstraction
-(e.g., Loihi-2, Speck, Akida). Across CR1 and CR2 inferences on the
-same architecture, the measured effective non-zero MAC ratios are
-$\bar{r}_{\rm CR1}\!=\!0.826$ and $\bar{r}_{\rm CR2}\!=\!0.823$,
-yielding indistinguishable energy bounds at two decimal places. We
-do not claim data-independence of the energy estimate. The two
-CUHK-CR distributions are simply close enough to give consistent
-bounds.
-
-\textbf{Per-layer firing rates.}\;\;Forward hooks on all LIF and \FQS{}
-modules measure $20$\,--\,$70\,\%$ non-zero activation across the
-analysis path. \FQS{} layers show a higher non-zero floor because
-four of five quantization levels are non-zero by construction. These
-per-layer rates $r_\ell$ directly enter the energy formula
-$E_{\rm SNN}\!=\!\sum_\ell\mathrm{MAC}_\ell\,r_\ell\,e_{\rm op}$.
-
 \subsection{Qualitative Results}\label{sec:exp-qualitative}
 
 \begin{figure}[!htbp]
@@ -969,7 +976,7 @@ server.
 
 Empirically, the $2.30$\,M onboard deployment variant attains
 $25.37$\,dB\,/\,$0.7728$ PSNR\,/\,SSIM on CUHK-CR1 and
-$23.20$\,dB\,/\,$0.7449$ on CUHK-CR2, exceeding a compact PlainUNet
+$23.20$\,dB\,/\,$0.7449$ on CUHK-CR2, exceeding the PlainUNet
 baseline by $+0.50$\,dB on CR1 and $+0.16$\,dB on CR2. Per-image
 inference energy on a $64\!\times\!64$ patch is estimated as
 $1.21\!\times$ to $72.3\!\times$ lower than the ANN baseline of
