@@ -1,6 +1,6 @@
-"""OrbitVLIF fancy architecture diagram (replaces the flat fig1.tex).
+"""OrbitALIF fancy architecture diagram (replaces the flat fig1.tex).
 
-Generates `fig1.pdf` — a 3D-style block-diagram of the OrbitVLIF
+Generates `fig1.pdf` — a 3D-style block-diagram of the OrbitALIF
 single-satellite architecture + the 5×10 Walker-Star federated topology.
 
 Architecture reflects the ACTUAL VLIFNet implementation (vlifnet.py):
@@ -213,7 +213,7 @@ def _panel_architecture(ax):
     """TRUE VLIFNet topology: SSHB at L1, DFRB at L2/L3, no bottleneck."""
 
     ax.text(0.22, 5.30,
-            r"(a) OrbitVLIF — single-satellite pipeline  "
+            r"(a) OrbitALIF — single-satellite pipeline  "
             r"($T{=}4$ steps, 2.30 M params)",
             ha="left", va="center",
             fontsize=8.0, fontweight="bold", color="black")
@@ -489,7 +489,7 @@ def _panel_module_dfrb(ax, x0, y0, w, h):
     fancy_block(ax, cx_in-0.18, y_mid-0.16, 0.36, 0.32,
                 title=r"$\mathbf{X}$", color=C_GRAY, fontsize=6.0, shadow=False)
 
-    for (y, lif_lbl) in [(y_top, "VLIF₁"), (y_bot, "PS-VLIF₂")]:
+    for (y, lif_lbl) in [(y_top, "5QS-LIF₁"), (y_bot, "PS-LIF₂")]:
         lw = 0.44 if y == y_bot else 0.40
         fancy_block(ax, cx_lif-lw, y-0.13, lw*2, 0.26,
                     title=lif_lbl, color=C_YELLOW, fontsize=5.2, radius=0.04)
@@ -718,10 +718,10 @@ def _panel_module_sshb(ax, x0, y0, w, h):
     steps = [
         (r"DFRB  ($C$)",                  C_BLUE),
         (r"PixelUnshuffle \xd72",         C_GRAY),
-        (r"VLIF  $[T{\times}4{=}16]$",    C_YELLOW),
+        (r"5QS-LIF  $[T{\times}4{=}16]$",  C_YELLOW),
         (r"TCAM",                          C_GREEN),
         (r"Conv3d  $16{\to}T{=}4$",       C_GRAY),
-        (r"VLIF{\to}Conv{\to}TDBN  \xd72",C_YELLOW),
+        (r"5QS-LIF{\to}Conv{\to}TDBN  \xd72",C_YELLOW),
         (r"bilinear $\uparrow\!2$",        C_GRAY),
         (r"TCS-Att",                       C_ORANGE),
         (r"FSE-MLP",                       C_GREEN),
