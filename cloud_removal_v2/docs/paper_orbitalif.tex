@@ -772,33 +772,41 @@ deployment validation.
 
 \subsection{Centralized Cloud-Removal Performance}\label{sec:exp-centralized}
 
-Under identical optimization (AdamW, lr\,$10^{-3}$, cosine,
-$400$ epochs, batch~$4$), \OrbitALIF{} attains $25.374$\,dB on
-CUHK-CR1 and $23.197$\,dB on CUHK-CR2, exceeding the PlainUNet
-baseline by $+0.502$\,dB on CR1 and $+0.157$\,dB on CR2
-despite operating with sparse spike activations and TDBN-quantized
-intermediate features. The smaller CR2 margin reflects the harder
-restoration ceiling under thick-cloud occlusion. The CR1 gain is
-architectural: the ablations of Section~\ref{sec:exp-ablation} show
-that disabling either \SHAM{} or the dual-group \DFRB{} removes
-the gain entirely (Tab.~\ref{tab:ablation}, rows B1--B2).
+The energy savings of Section~\ref{sec:exp-energy} are only useful
+if restoration quality holds up. Spiking restoration networks
+frequently underperform their ANN counterparts at the same
+parameter count~\cite{ref:esdnet}, which raises the question of
+whether a similar gap appears here. We train \OrbitALIF{} centrally
+under the same optimisation protocol as the PlainUNet baseline and
+read off CR1 and CR2 numbers.
+
+Under AdamW with $10^{-3}\!\to\!10^{-7}$ cosine over $400$ epochs
+and batch size four, \OrbitALIF{} reaches $25.374$\,dB on CUHK-CR1
+and $23.197$\,dB on CUHK-CR2, exceeding the PlainUNet baseline by
+$+0.502$\,dB on CR1 and $+0.157$\,dB on CR2 despite sparse spike
+activations and TDBN-quantised intermediate features. The narrower
+CR2 margin reflects the harder restoration ceiling under fully
+opaque cloud cover, an effect we revisit in the qualitative results
+(Section~\ref{sec:exp-qualitative}). The CR1 gain is architectural,
+not a side effect of any one component: the ablations of
+Section~\ref{sec:exp-ablation} show that disabling either \SHAM{}
+or the dual-group \DFRB{} removes the gain entirely
+(Tab.~\ref{tab:ablation}, rows B1--B2).
 
 \subsection{Component Ablation}\label{sec:exp-ablation}
 
-We disable one \OrbitALIF{} component at a time and retrain on
-CUHK-CR1 for $300$ epochs. Ablation B1 surgically replaces every
-\SHAM{} block with the identity mapping. B2 replaces every \DFRB{}
-with a single-group residual block that retains only the temporal
-LIF group (and the shortcut, TCS-Att, and \SHAM{} tail), removing
-the PixelShuffle-LIF spatial high-frequency path and the cross-scale
-gate $\sigma(g)$. B3 replaces \FQS{} with a binary spike whose
-forward output is $\{0,1\}$ but whose surrogate gradient window
-$[0,4]$ and $1/4$ scale are kept identical to \FQS{}, so that only
-the forward quantization granularity changes. \AGFM{} is omitted
-from this ablation due to space. Its
-$1\!\times\!1$ gate at L1/L2 contributes ${<}1\%$ of total parameters
-and produces only an in-place re-weighting of the encoder skip path,
-a smaller dataflow change than B1--B3.
+The previous subsection claimed that the CR1 gain is architectural
+rather than driven by a single dominant module. We test this by
+disabling one \OrbitALIF{} component at a time and retraining on
+CR1 for $300$ epochs. B1 replaces every \SHAM{} block with the
+identity. B2 replaces every \DFRB{} with a single-group residual
+block that keeps only the temporal LIF group, removing the
+PixelShuffle-LIF spatial path and the cross-scale gate $\sigma(g)$.
+B3 replaces \FQS{} with a binary spike, keeping the surrogate
+gradient window $[0,4]$ and $1/4$ scale unchanged so that only
+the forward quantisation granularity changes. \AGFM{} is excluded
+as its $1\!\times\!1$ gate at L1/L2 contributes under one percent
+of parameters.
 
 \begin{table}[!htbp]
 \centering
@@ -832,50 +840,42 @@ PlainUNet (C2, ref.)      & $1.31$ & $24.872$         & $-0.502$    & $0.7683$  
   \label{fig:ablation}
 \end{figure}
 
-\textbf{Component ranking.}\;\;Table~\ref{tab:ablation} attributes the
-largest single-component PSNR drop to \SHAM{} ($-0.597$\,dB),
-followed by the dual-group \DFRB{} ($-0.516$\,dB) and \FQS{}
-($-0.302$\,dB). The ranking is consistent with the design rationale
-of Section~\ref{sec:framework}. \SHAM{} contributes orthogonal
+\textbf{Component ranking.} The single-component drops in
+Tab.~\ref{tab:ablation} order as \SHAM{} ($-0.597$\,dB), then the
+dual-group \DFRB{} ($-0.516$\,dB), then \FQS{} ($-0.302$\,dB),
+which matches the design rationale of
+Section~\ref{sec:framework}. \SHAM{} contributes orthogonal
 recalibration along the temporal-amplitude and frequency-spatial
-axes that no other component recovers. The dual-group \DFRB{}
-provides the spatial high-frequency path that complements the
-temporal LIF group, and without it the model loses fine-texture
-restoration capacity. \FQS{} contributes the smallest drop because
-under the $300$-epoch budget the membrane potential takes
-$\sim\!50$ epochs to warm up past $V_{\rm th}$ under TDBN
-initialisation, leaving the multi-level dynamic range partially
-under-utilised. Under the full $400$-epoch schedule of the A1 run
-this gap widens slightly.
+axes that no other module recovers. The dual-group \DFRB{}
+contributes the spatial high-frequency path that complements the
+temporal LIF group. \FQS{} contributes the smallest drop,
+consistent with its role as the activation-level expression of SNN
+sparsity rather than a feature-extraction component.
 
-\textbf{Co-design evidence.}\;\;A striking observation is that two of
-the three single-component ablations (B1 at $24.777$\,dB and B2 at
-$24.858$\,dB) fall \emph{below} the PlainUNet baseline at
-$24.872$\,dB, even though the ablated networks retain the rest of the
-\OrbitALIF{} architecture. Removing one component therefore breaks
-\OrbitALIF{} more than reverting entirely to a plain ANN. This is
-strong evidence that the \OrbitALIF{} blocks are co-designed: the
-$+0.50$\,dB CR1 advantage is not the sum of independently-additive
-component gains but a synergistic effect that requires all
-components to operate together. Only B3, which keeps the
-architecture intact and only relaxes the spike granularity, remains
-above PlainUNet, confirming that \FQS{} is a refinement rather than
-a load-bearing component.
+\textbf{Co-design evidence.} Both B1 ($24.777$\,dB) and B2
+($24.858$\,dB) fall below PlainUNet at $24.872$\,dB. Removing one
+component therefore breaks \OrbitALIF{} more than reverting to a
+plain ANN. The $+0.502$\,dB CR1 margin is not a sum of independent
+component gains but a synergy that requires all components to
+operate together. Only B3 stays above PlainUNet, indicating that
+\FQS{} is a refinement rather than a load-bearing module.
 
 \subsection{Decentralized Federated Cloud-Removal}\label{sec:exp-federated}
 
-This subsection evaluates the central system contribution of this
-work: the decentralized \textsc{FedBN}\,+\,Gossip training pipeline of
-Section~\ref{sec:sysmodel-procedure}. We
-deploy three matched-protocol backbones on the
-$5\!\times\!10\!=\!50$-satellite Walker-Star constellation under
-source-level Dirichlet $\alpha\!=\!0.1$ for $R\!=\!200$ rounds.
-\OrbitALIF{}-SNN is the full spiking variant. \OrbitALIF{}-ANN replaces
-every \FQS{}-LIF with ReLU. PlainUNet is the ANN U-Net
-baseline. All three share the identical aggregation pipeline of
-Section~\ref{sec:sysmodel-procedure} and differ only in the
-per-satellite network, so any performance gap is attributable to the
-backbone alone.
+The architectural advantage measured in
+Section~\ref{sec:exp-centralized} was obtained under centralised
+training with full data access. The harder question is whether it
+survives the decentralised setting introduced in
+Section~\ref{sec:sysmodel-procedure}, where each satellite sees
+only its source-Dirichlet share of the data and exchanges
+parameters with a chain-Gossip topology. We deploy three
+matched-protocol backbones on the $5\!\times\!10\!=\!50$-satellite
+Walker-Star constellation under $\alpha\!=\!0.1$ for $R\!=\!200$
+rounds. \OrbitALIF{}-SNN is the full spiking variant.
+\OrbitALIF{}-ANN replaces every \FQS{}-LIF with ReLU. PlainUNet is
+the ANN U-Net baseline. All three share the identical aggregation
+pipeline and differ only in the per-satellite network, so any
+performance gap is attributable to the backbone alone.
 
 \begin{table}[!htbp]
 \centering
@@ -906,34 +906,35 @@ PlainUNet (baseline)                 & $22.012$          & $0.6819$          & $
   \label{fig:federated}
 \end{figure}
 
-\textbf{Architecture transfers to the federated setting.}\;\;Under
-identical \textsc{FedBN}\,+\,Gossip, $R\!=\!200$, $\alpha\!=\!0.1$,
-\OrbitALIF{}-ANN attains $22.679$\,dB\,/\,$0.6966$, exceeding the
-PlainUNet floor of $22.012$\,dB by $+0.667$\,dB
-($+0.0147$ SSIM)---a margin even larger than the $+0.502$\,dB CR1
-margin in the centralized regime. The \OrbitALIF{} architecture
-therefore retains its quality advantage when training is fully
-decentralized.
+\textbf{Architecture survives the federated setting.} Under
+identical \textsc{FedBN}\,+\,Gossip, $R\!=\!200$,
+$\alpha\!=\!0.1$, \OrbitALIF{}-ANN reaches $22.679$\,dB
+($0.6966$ SSIM), exceeding the PlainUNet floor of $22.012$\,dB by
+$+0.667$\,dB ($+0.0147$ SSIM). This is in fact larger than the
+$+0.502$\,dB centralised CR1 margin, indicating that the
+architectural advantage scales with rather than diminishes under
+decentralised training.
 
-\textbf{Spiking trade-off.}\;\;Replacing \FQS{}-LIF with ReLU\,+\,BN
-costs \OrbitALIF{}-SNN $0.793$\,dB versus the ANN variant
-($21.886$ vs $22.679$, with SSIM $0.6725$ vs $0.6966$). The SNN run
-lands within $0.13$\,dB of the plain ANN PlainUNet baseline despite
-sparse spike activations and TDBN-quantized intermediates, and
-recoups its quality loss in inference energy
-(Section~\ref{sec:exp-energy}: $1.21\!\times$ to $72.3\!\times$
-reduction over the ANN baseline).
+\textbf{Spiking cost is recovered in energy.} Replacing
+\FQS{}-LIF with ReLU\,+\,BN costs the SNN variant $0.793$\,dB
+versus the ANN variant ($21.886$ vs $22.679$, SSIM $0.6725$ vs
+$0.6966$). \OrbitALIF{}-SNN still lands within $0.13$\,dB of the
+ANN PlainUNet baseline despite sparse spike activations and
+TDBN-quantised intermediates, and the loss is recouped in the
+$1.21\!\times$ to $72.3\!\times$ inference-energy reduction
+reported in Section~\ref{sec:exp-energy}.
 
-\textbf{Heterogeneity sensitivity.}\;\;Tightening source heterogeneity
-from $\alpha\!=\!0.1$ to $\alpha\!=\!0.01$ degrades \OrbitALIF{}-SNN
-by only $-0.126$\,dB ($21.886\!\to\!21.760$,
-$0.6725\!\to\!0.6691$ SSIM), confirming that \textsc{FedBN}-local
-normalization absorbs most of the additional source skew without
-re-tuning the protocol. The remaining $2.86$\,dB centralized-vs-federated
-gap on PlainUNet (CR1, $24.872\!\to\!22.012$) reflects the difficulty
-of the $\alpha\!=\!0.1$ partition itself: $30/50$ satellites hold
-only five tiles each, so single satellites cannot reconstruct the
-full encoder representation under $R\!=\!200$ Gossip rounds.
+\textbf{Heterogeneity sensitivity.} Tightening source heterogeneity
+from $\alpha\!=\!0.1$ to $\alpha\!=\!0.01$ degrades
+\OrbitALIF{}-SNN by only $-0.126$\,dB
+($21.886\!\to\!21.760$, SSIM $0.6725\!\to\!0.6691$).
+\textsc{FedBN}-local normalisation therefore absorbs most of the
+additional skew without re-tuning the protocol. The $2.86$\,dB gap
+that remains between centralised and federated PlainUNet on CR1
+($24.872\!\to\!22.012$) reflects the difficulty of the
+$\alpha\!=\!0.1$ partition itself: $30$ of $50$ satellites hold
+only the five-tile floor, so a single satellite cannot reconstruct
+the full encoder representation in $R\!=\!200$ rounds.
 
 \subsection{Qualitative Results}\label{sec:exp-qualitative}
 
@@ -946,12 +947,13 @@ full encoder representation under $R\!=\!200$ Gossip rounds.
   \label{fig:qualitative}
 \end{figure}
 
-Figure~\ref{fig:qualitative} shows that \OrbitALIF{} recovers texture
-and colour consistency across all four tiles, particularly along
-thin-cloud edges where the \DFRB{} spatial path is most active.
-The quality gap narrows under fully-opaque cover, consistent with
-the smaller CR2 margin reported in
-Section~\ref{sec:exp-centralized}.
+Figure~\ref{fig:qualitative} provides a visual check on the PSNR
+margins of the previous subsections. \OrbitALIF{} recovers texture
+and colour consistency across the four CR1 test tiles, with the
+clearest gain along thin-cloud edges where the spatial path of
+\DFRB{} is most active. The visual advantage narrows under fully
+opaque cloud cover, consistent with the smaller $+0.157$\,dB CR2
+margin (Section~\ref{sec:exp-centralized}).
 
 % =====================================================================
 % Section V: Conclusion
