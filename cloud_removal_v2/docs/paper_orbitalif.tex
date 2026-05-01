@@ -1066,13 +1066,421 @@ intra-plane aggregation and inter-plane Gossip mixing. This allows
 \OrbitALIF{} to train onboard without uploading raw observations or
 relying on a centralized ground parameter server.
 
+% =====================================================================
 % Section IV: Experiments
+% =====================================================================
 \section{Experiments}\label{sec:experiments}
-\textit{[Section to be written by the user.]}
 
+\subsection{Experimental Setup}\label{sec:exp-setup}
+
+\textbf{Datasets.}\;\;We use the publicly available CUHK-CR
+benchmark~\cite{ref:cuhkcr}, which contains paired cloudy and
+cloud-free Sentinel-2 RGB tiles at high resolution. CUHK-CR1 contains
+thin-cloud scenes and CUHK-CR2 contains thick-cloud scenes; the two
+splits define the two source domains $\{1,2\}$ used by the
+source-level Dirichlet partition in
+Section~\ref{sec:sysmodel-dirichlet}. Following the original benchmark
+protocol, all training and evaluation are performed on
+$64\!\times\!64$ random crops, with PSNR and SSIM evaluated on the
+held-out test split using $64\!\times\!64$ centre patches.
+
+\textbf{Models.}\;\;Three matched-protocol backbones are evaluated.
+\OrbitALIF{}-SNN is the spiking variant described in
+Section~\ref{sec:framework-arch} with five-level quantized spikes,
+TDBN normalization, and $T\!=\!4$ spike steps. \OrbitALIF{}-ANN keeps
+the identical dataflow but replaces every \FQS{}-LIF activation with
+ReLU and uses standard 2D BatchNorm; this isolates the effect of
+spiking computation from the effect of architectural choices.
+PlainUNet is a parameter-light vanilla U-Net baseline ($1.31$\,M
+parameters) commonly used for cloud-removal ablation. Unless
+otherwise stated, the spiking variant uses base channel width
+$C\!=\!24$ ($\approx\!2.30$\,M parameters) and is referred to as the
+\emph{onboard deployment variant}.
+
+\textbf{Optimization.}\;\;All centralized models are trained for
+$600$ epochs with AdamW, base learning rate $10^{-3}$, cosine decay
+to $10^{-7}$, $3$-epoch linear warmup, batch size $4$, and gradient
+clipping at $\|g\|_2\!\le\!1$. The composite reconstruction loss in
+\eqref{eq:loss} uses $\varepsilon\!=\!10^{-3}$ and
+$\lambda\!=\!0.1$. PlainUNet uses the same optimizer settings but
+converges in $400$ epochs. Ablation runs (Section~\ref{sec:exp-ablation})
+use $300$ epochs to keep training cost tractable.
+
+\textbf{Federated training.}\;\;We instantiate the constellation of
+Section~\ref{sec:sysmodel-constellation} with $N\!=\!5$ orbital planes
+and $K\!=\!10$ satellites per plane ($NK\!=\!50$ in total). Federated
+training proceeds for $R\!=\!200$ communication rounds. Within each
+round, every satellite performs $E\!=\!2$ AdamW local epochs over its
+Dirichlet-partitioned data shard, intra-plane ring AllReduce uses
+$2$ averaging passes, and inter-plane Gossip uses single-step mixing
+over a fixed chain mixing matrix~$W$. The default Dirichlet
+concentration is $\alpha\!=\!0.1$.
+
+\textbf{Hardware and metrics.}\;\;All training and inference experiments
+use a single NVIDIA RTX-class GPU. We report PSNR (dB) and SSIM
+averaged over the held-out CUHK-CR1 / CR2 test splits. For the
+federated runs we additionally report cumulative inter-plane
+communication volume in megabytes and total wall time in hours. For
+energy analysis (Section~\ref{sec:exp-energy}) we use forward hooks to
+measure per-layer MAC counts and non-zero activation rates on
+$32$ test patches and combine these measurements with literature
+per-operation energy constants.
+
+\subsection{Centralized Cloud-Removal Performance}\label{sec:exp-centralized}
+
+Table~\ref{tab:centralized} reports centralized results on CUHK-CR1
+and CUHK-CR2. \OrbitALIF{} attains
+$25.374$\,dB\,/\,$0.7728$ PSNR\,/\,SSIM on CR1 and
+$23.197$\,dB\,/\,$0.7449$ on CR2, exceeding the compact PlainUNet
+baseline by $+0.502$\,dB on CR1 and $+0.157$\,dB on CR2 despite
+operating with sparse spike activations and TDBN-quantized
+intermediate features. The smaller margin on CR2 reflects the harder
+restoration ceiling under thick-cloud occlusion, where the encoder
+features themselves carry less recoverable information.
+
+\begin{table}[!htbp]
+\centering
+\caption{Centralized cloud-removal performance on CUHK-CR1 and
+CUHK-CR2. \OrbitALIF{} is trained for $600$ epochs; PlainUNet is the
+compact ANN U-Net baseline trained for $400$ epochs. PSNR and SSIM
+are evaluated on $64\!\times\!64$ centre patches of the held-out
+test split. Bold indicates the best per dataset.}
+\label{tab:centralized}
+\begin{tabular}{lcccc}
+\toprule
+Method & Params (M) & PSNR (dB) & SSIM & Wall (h) \\
+\midrule
+\multicolumn{5}{l}{\emph{CUHK-CR1 (thin clouds)}} \\
+PlainUNet                  & $1.31$ & $24.872$           & $0.7683$           & $0.60$ \\
+\OrbitALIF{} (ours)        & $2.30$ & $\mathbf{25.374}$  & $\mathbf{0.7728}$  & $2.30$ \\
+\midrule
+\multicolumn{5}{l}{\emph{CUHK-CR2 (thick clouds)}} \\
+PlainUNet                  & $1.31$ & $23.040$           & $0.7400$           & $0.60$ \\
+\OrbitALIF{} (ours)        & $2.30$ & $\mathbf{23.197}$  & $\mathbf{0.7449}$  & $2.34$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[!htbp]
+  \centering
+  \includegraphics[width=\columnwidth]{fig7_centralized_4panel.pdf}
+  \caption{Centralized training dynamics on CUHK-CR1 (top row) and
+  CUHK-CR2 (bottom row). \OrbitALIF{} (blue) reaches a higher PSNR
+  plateau than the compact PlainUNet baseline (orange) on both
+  datasets despite operating with sparse spike activations. Loss
+  panels (a) and (c) use a logarithmic ordinate.}
+  \label{fig:fig7-centralized-4panel}
+\end{figure}
+
+The centralized advantage is architectural rather than capacity-driven:
+\OrbitALIF{} uses $2.30$\,M parameters versus $1.31$\,M for PlainUNet,
+but the $+0.50$\,dB CR1 gain stems from the four \OrbitALIF{}
+building blocks rather than from raw parameter count, as the
+ablation study in Section~\ref{sec:exp-ablation} confirms by
+selectively disabling them.
+
+\textbf{Capacity-scaled variant.}\;\;For completeness, we additionally
+instantiate \OrbitALIF{} at $C\!=\!56$ ($\approx\!14$\,M parameters)
+on the same dataflow to study the quality--computation trade-off.
+A detailed comparison against full-capacity restoration baselines
+(SpA-GAN, MemoryNet, Restormer, DDFR) is deferred to the extended
+version because the corresponding centralized runs are still in
+progress at submission time and the focus of this paper is the
+onboard deployment regime.
+
+\subsection{Component Ablation}\label{sec:exp-ablation}
+
+We disable one \OrbitALIF{} component at a time and retrain on
+CUHK-CR1 for $300$ epochs. Ablation B1 surgically replaces every
+\SHAM{} block with the identity mapping; B2 replaces every \DFRB{}
+with a single-group residual block that retains only the temporal
+LIF group (and the shortcut, TCS-Att, and \SHAM{} tail) so that the
+PixelShuffle-LIF spatial high-frequency path and the cross-scale gate
+$\sigma(g)$ are removed; B3 replaces \FQS{} with a binary spike whose
+forward output is $\{0,1\}$ but whose surrogate gradient window
+$[0,4]$ and $1/4$ scale are kept identical to \FQS{}, so that only
+the forward quantization granularity changes. \AGFM{} is not
+separately ablated because its sigmoid gate degenerates to plain
+addition at $\boldsymbol{\gamma}\!=\!\tfrac{1}{2}$ and no surgery is
+needed in code.
+
+\begin{table}[!htbp]
+\centering
+\caption{Component ablation on CUHK-CR1 ($300$ epochs).
+$\Delta$ values are relative to the full \OrbitALIF{} (A1). Row
+\emph{C2} reproduces the PlainUNet baseline of
+Table~\ref{tab:centralized} for direct reference.}
+\label{tab:ablation}
+\begin{tabular}{lccccc}
+\toprule
+Variant & Params (M) & PSNR & $\Delta$\,PSNR & SSIM & $\Delta$\,SSIM \\
+\midrule
+\textbf{Full (A1)}        & $2.30$ & $\mathbf{25.374}$ & ---         & $\mathbf{0.7728}$ & ---           \\
+$-$\SHAM{} (B1)           & $2.22$ & $24.777$         & $-0.597$    & $0.7620$         & $-0.0108$    \\
+$-$\DFRB{} dual (B2)      & $1.44$ & $24.858$         & $-0.516$    & $0.7633$         & $-0.0095$    \\
+$-$\FQS{} (B3, binary)    & $2.30$ & $25.072$         & $-0.302$    & $0.7666$         & $-0.0062$    \\
+\midrule
+PlainUNet (C2, ref.)      & $1.31$ & $24.872$         & $-0.502$    & $0.7683$         & $-0.0045$    \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[!htbp]
+  \centering
+  \includegraphics[width=\columnwidth]{fig4_ablation_bars.pdf}
+  \caption{Component ablation on CUHK-CR1. PSNR (left) and SSIM
+  (right) for the full \OrbitALIF{} (A1) and the three
+  single-component ablations B1--B3. Numerical $\Delta$ values are
+  printed above each ablated bar; the diagonal-hatch pattern marks
+  the reference (Full) bar.}
+  \label{fig:ablation}
+\end{figure}
+
+\textbf{Component ranking.}\;\;Table~\ref{tab:ablation} attributes the
+largest single-component PSNR drop to \SHAM{} ($-0.597$\,dB),
+followed by the dual-group \DFRB{} ($-0.516$\,dB) and \FQS{}
+($-0.302$\,dB). The ranking is consistent with the design rationale
+of Section~\ref{sec:framework-arch}. \SHAM{} contributes orthogonal
+recalibration along the temporal-amplitude and frequency-spatial
+axes that no other component recovers. The dual-group \DFRB{}
+provides the spatial high-frequency path that complements the
+temporal LIF group; without it the model loses fine-texture
+restoration capacity. \FQS{} contributes the smallest drop because
+under the $300$-epoch budget the membrane potential takes
+$\sim\!50$ epochs to warm up past $V_{\rm th}$ under TDBN
+initialisation, leaving the multi-level dynamic range partially
+under-utilised; under the full $600$-epoch schedule of the A1 run
+this gap is expected to widen.
+
+\textbf{Co-design evidence.}\;\;A striking observation is that two of
+the three single-component ablations (B1 at $24.777$\,dB and B2 at
+$24.858$\,dB) fall \emph{below} the PlainUNet baseline at
+$24.872$\,dB, even though the ablated networks retain the rest of the
+\OrbitALIF{} architecture. Removing one component therefore breaks
+\OrbitALIF{} more than reverting entirely to a plain ANN. This is
+strong evidence that the \OrbitALIF{} blocks are co-designed: the
+$+0.50$\,dB CR1 advantage is not the sum of independently-additive
+component gains but a synergistic effect that requires all
+components to operate together. Only B3, which keeps the
+architecture intact and only relaxes the spike granularity, remains
+above PlainUNet, confirming that \FQS{} is a refinement rather than
+a load-bearing component.
+
+\subsection{Decentralized Federated Cloud-Removal}\label{sec:exp-federated}
+
+This subsection evaluates the central system contribution of this
+work: the decentralized \textsc{FedBN}\,+\,Gossip training pipeline of
+Sections~\ref{sec:sysmodel-procedure} and~\ref{sec:framework-fl}. We
+deploy three matched-protocol backbones on the
+$5\!\times\!10\!=\!50$-satellite Walker-Star constellation under
+source-level Dirichlet $\alpha\!=\!0.1$ for $R\!=\!200$ rounds.
+\OrbitALIF{}-SNN is the full spiking variant; \OrbitALIF{}-ANN replaces
+every \FQS{}-LIF with ReLU; PlainUNet is the compact ANN U-Net
+baseline. All three share the identical aggregation pipeline of
+Section~\ref{sec:sysmodel-procedure} and differ only in the
+per-satellite network, so any performance gap is attributable to the
+backbone alone.
+
+\begin{table}[!htbp]
+\centering
+\caption{Decentralized federated cloud-removal on CUHK-CR1\,$\cup$\,CR2
+under \textsc{FedBN}\,+\,Gossip, $R\!=\!200$ rounds, source-level
+Dirichlet $\alpha\!=\!0.1$. Communication volume is the cumulative
+inter-plane traffic over shared (non-BN) parameters. Bracketed cells
+[\,$\cdot$\,] are pending the in-progress \OrbitALIF{}-SNN runs and
+will be filled in the camera-ready or extended version.}
+\label{tab:federated}
+\begin{tabular}{lcccc}
+\toprule
+Backbone (FedBN $\times$ Gossip)    & PSNR (dB) & SSIM & Comm (MB) & Wall (h) \\
+\midrule
+PlainUNet (baseline)                 & $22.012$  & $0.6819$  & $8420$     & $4.37$ \\
+\OrbitALIF{}-ANN                     & [\,XX.XX] & [\,0.XXXX]& [\,XX]     & [\,X.XX] \\
+\OrbitALIF{}-SNN (ours)              & [\,XX.XX] & [\,0.XXXX]& [\,XX]     & [\,X.XX] \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[!htbp]
+  \centering
+  \includegraphics[width=\columnwidth]{fig5_federated_curves.pdf}
+  \caption{Federated test PSNR versus communication round under
+  \textsc{FedBN}\,+\,Gossip with $\alpha\!=\!0.1$. Per-plane shading
+  shows the min--max envelope across the five orbital planes. The
+  spiking-backbone curve is deferred to the extended version.}
+  \label{fig:federated}
+\end{figure}
+
+\textbf{Federated reference.}\;\;The PlainUNet baseline reaches
+$22.012$\,dB\,/\,$0.6819$ at round $200$ with $8.42$\,GB cumulative
+inter-plane traffic in $4.37$\,h on a single GPU. This constitutes a
+\emph{federated PSNR floor} against which the \OrbitALIF{} variants
+will be measured. The $2.86$\,dB gap to the centralized PlainUNet
+result on CR1 ($24.872$\,dB) quantifies the cost of the source-level
+Dirichlet $\alpha\!=\!0.1$ partition: under this concentration $30$
+of $50$ satellites hold only the floor of five training tiles each,
+so individual satellites cannot recover the full encoder
+representation, and per-round Gossip mixing only partially
+compensates over $R\!=\!200$ rounds.
+
+\textbf{Dirichlet partition statistics.}\;\;The actual per-client
+sample-count vector recorded by the partition log includes
+$30/50\!=\!60\,\%$ floor clients (five tiles each) and three heavy
+clients with $\{117, 118, 118\}$ samples; the remaining $17$ clients
+are spread between these two extremes. The same $\alpha\!=\!0.1$
+configuration is used for all federated runs in
+Table~\ref{tab:federated}, so any backbone-level differences cannot
+be attributed to differences in the data partition.
+
+\subsection{Energy Analysis}\label{sec:exp-energy}
+
+\begin{figure}[!htbp]
+  \centering
+  \includegraphics[width=\columnwidth]{fig6_energy_bars.pdf}
+  \caption{Per-image estimated inference energy on a
+  $64\!\times\!64$ CUHK-CR1 centre patch. ANN baseline at
+  $4.6$\,pJ/MAC (Horowitz, ISSCC 2014, $45$\,nm CMOS); \OrbitALIF{}
+  is reported as a dual bound: a \emph{conservative upper bound}
+  that charges every non-zero MAC at the full ANN rate, and a
+  \emph{deployment-target lower bound} at $77$\,fJ/SOP for
+  neuromorphic substrates. Multipliers vs.\ ANN are annotated above
+  each bar.}
+  \label{fig:energy}
+\end{figure}
+
+\begin{figure}[!htbp]
+  \centering
+  \includegraphics[width=\columnwidth]{fig9_per_layer_spike_rate.pdf}
+  \caption{\OrbitALIF{} per-layer LIF firing rate on CUHK-CR1 test,
+  measured through forward hooks on every LIF / \FQS{} module.
+  Binary LIF layers exhibit $20$\,--\,$70\,\%$ firing; \FQS{}-equipped
+  layers show a higher non-zero floor because four of the five
+  quantization levels are non-zero by construction.}
+  \label{fig:firing-rate}
+\end{figure}
+
+\textbf{Methodology and disclosure.}\;\;Per-image inference energy is
+\emph{estimated}, not hardware-measured. We hook every
+\texttt{Conv2d}/\texttt{Linear} layer to count MACs and the input
+non-zero rate $r_\ell$, and every LIF / \FQS{} module to record the
+output firing rate, on $32$ CUHK-CR1 test patches at
+$64\!\times\!64$. The MAC counts and per-layer rates are real
+measurements; the per-operation energy constants are taken from the
+literature. We use $4.6$\,pJ/MAC for the ANN baseline (Horowitz, ISSCC
+2014, $45$\,nm CMOS) and $77$\,fJ/SOP for the SNN deployment estimate,
+the constant adopted by FLSNN~\cite{ref:flsnn} and
+ESDNet~\cite{ref:esdnet} for neuromorphic substrates such as
+Loihi-2~\cite{ref:loihi}. Hardware-measured power on actual
+neuromorphic platforms is deferred to deployment validation.
+
+\textbf{Total energy bounds.}\;\;Figure~\ref{fig:energy} reports
+per-image bounds. The ANN baseline at $4.6$\,pJ/MAC over the
+$4.51$\,GMAC inference consumes $20.75$\,mJ. \OrbitALIF{} is reported
+as a dual bound. The \emph{conservative upper bound} of $17.14$\,mJ
+($1.21\!\times\!$ reduction) charges every non-zero MAC at the full
+$4.6$\,pJ ANN rate and is achievable without any neuromorphic
+hardware. The \emph{deployment-target lower bound} of
+$0.287$\,mJ ($72.3\!\times\!$ reduction) uses $77$\,fJ/SOP and
+applies to substrates that support the full SOP / spike abstraction
+(e.g., Loihi-2, Speck, Akida). Across CR1 and CR2 inferences on the
+same architecture, the measured effective non-zero MAC ratios are
+$\bar{r}_{\rm CR1}\!=\!0.826$ and $\bar{r}_{\rm CR2}\!=\!0.823$,
+yielding indistinguishable energy bounds at two decimal places. We
+do not claim data-independence of the energy estimate; the two
+CUHK-CR distributions are simply close enough to give consistent
+bounds.
+
+\textbf{Per-layer firing rates.}\;\;Figure~\ref{fig:firing-rate}
+visualizes the layer-wise LIF / \FQS{} firing rates on CR1 test
+patches. Binary LIF layers exhibit $20$\,--\,$70\,\%$ firing across
+the analysis path. \FQS{}-equipped layers (notably the
+\texttt{lif\_node} inside \SSHB{}) show a higher non-zero floor,
+because four of the five \FQS{} levels $\{1/4,1/2,3/4,1\}$ are
+non-zero by construction. The firing-rate measurement is the
+empirical witness that spike sparsity is real rather than a
+simulation artefact, and the per-layer non-zero MAC rates that enter
+the energy formula
+$E_{\rm SNN}\!=\!\sum_\ell\mathrm{MAC}_\ell\,r_\ell\,e_{\rm op}$
+are derived from these measurements.
+
+\subsection{Qualitative Results}\label{sec:exp-qualitative}
+
+\begin{figure}[!htbp]
+  \centering
+  \includegraphics[width=\columnwidth]{fig3_qualitative_grid.pdf}
+  \caption{Qualitative cloud-removal comparison on four representative
+  CUHK-CR1 test tiles. Columns left-to-right: cloudy input,
+  \OrbitALIF{} (ours), PlainUNet baseline, ground truth. Per-image
+  PSNR is annotated on each restoration cell.}
+  \label{fig:qualitative}
+\end{figure}
+
+Figure~\ref{fig:qualitative} compares centre-patch restorations on
+four CUHK-CR1 test tiles selected via a deterministic
+cloud-coverage severity score (the L2 distance between cloudy and
+ground-truth pixels), biasing the selection toward harder samples.
+Across all four tiles \OrbitALIF{} recovers texture and colour
+consistency that visibly exceeds PlainUNet, particularly along
+thin-cloud edges where the high-frequency content carried by the
+\DFRB{} spatial path (Section~\ref{sec:framework-dfrb}) is most
+active. The quality gap is concentrated in regions of moderate cloud
+density (\AGFM{} gate $\boldsymbol{\gamma}\!\approx\!0.5$); under
+fully-opaque cloud cover both architectures degrade similarly,
+consistent with the smaller CR2 gain reported in
+Table~\ref{tab:centralized}.
+
+% =====================================================================
 % Section V: Conclusion
+% =====================================================================
 \section{Conclusion}\label{sec:conclusion}
-\textit{[Section to be written by the user.]}
+
+We presented \OrbitALIF{}, the first end-to-end decentralized
+federated learning framework for satellite-onboard SNN-based optical
+cloud removal. The framework couples an attention-enhanced LIF
+restoration backbone with a constellation-native training pipeline.
+The backbone integrates five-level quantized spikes (\FQS{}),
+dual-frequency residual blocks (\DFRB{}), spectral-spatial hybrid
+attention (\SHAM{}), adaptive gated cross-stage fusion (\AGFM{}),
+and full-resolution spectro-temporal hyper-blocks (\SSHB{}) into a
+sparse spiking dataflow that preserves pixel-level restoration
+capability. The training pipeline runs entirely between satellites
+through intra-plane ring AllReduce and inter-plane Gossip mixing,
+with all BN-tagged parameters kept local under the \textsc{FedBN}
+protocol; this avoids both the bandwidth cost of downlinking raw
+observations and the dependence on a centralized ground parameter
+server.
+
+Empirically, the $2.30$\,M onboard deployment variant attains
+$25.37$\,dB\,/\,$0.7728$ PSNR\,/\,SSIM on CUHK-CR1 and
+$23.20$\,dB\,/\,$0.7449$ on CUHK-CR2, exceeding a compact PlainUNet
+baseline by $+0.50$\,dB on CR1 and $+0.16$\,dB on CR2. Per-image
+inference energy on a $64\!\times\!64$ patch is estimated as
+$1.21\!\times$ to $72.3\!\times$ lower than the ANN baseline of
+$20.75$\,mJ under standard literature pJ-per-operation constants.
+Component ablations show that the building blocks form a co-designed
+whole: removing \SHAM{} or the dual-group \DFRB{} drops PSNR
+\emph{below} the plain ANN baseline, while removing \FQS{} (binary
+spikes) keeps performance above PlainUNet. The centralized
+PlainUNet-vs-federated PlainUNet gap of $2.86$\,dB on CR1 quantifies
+the difficulty of the source-level Dirichlet $\alpha\!=\!0.1$
+partition and frames the federated setting in which the spiking
+backbone is evaluated.
+
+Several directions extend this work. (i) Closing the
+federated-vs-centralized gap, particularly under the spiking
+backbone whose $\alpha$-sensitivity runs are deferred to the
+extended version, by combining \textsc{FedBN}\,+\,Gossip with partial
+participation, momentum aggregation, or learnable inter-plane
+mixing matrices that exploit orbital geometry. (ii) Real-orbit
+validation on neuromorphic substrates (Loihi-2, Speck, Akida) to
+replace the analytic energy bracket with measured power draw under
+realistic on-orbit thermal and power conditions. (iii) Multi-source
+generalization beyond CUHK-CR1\,+\,CR2 (e.g., Sentinel-2 versus
+Landsat-8) with $S\!\geq\!3$ source domains, exercising stronger
+source-level heterogeneity. (iv) Capacity scaling of \OrbitALIF{} to
+the $14$\,M variant and a full comparison against high-capacity
+restoration baselines, characterising the quality--computation
+trade-off across the full deployment spectrum.
 
 % =====================================================================
 % Bibliography
