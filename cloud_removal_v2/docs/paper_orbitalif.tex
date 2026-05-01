@@ -960,46 +960,35 @@ margin (Section~\ref{sec:exp-centralized}).
 % =====================================================================
 \section{Conclusion}\label{sec:conclusion}
 
-We presented \OrbitALIF{}, the first end-to-end decentralized
-federated learning framework for satellite-onboard SNN-based optical
-cloud removal. The framework couples an attention-enhanced LIF
-restoration backbone with a constellation-native training pipeline.
-The backbone integrates five-level quantized spikes (\FQS{}),
-dual-frequency residual blocks (\DFRB{}), spectral-spatial hybrid
-attention (\SHAM{}), adaptive gated cross-stage fusion (\AGFM{}),
-and full-resolution spectro-temporal hyper-blocks (\SSHB{}) into a
-sparse spiking dataflow that preserves pixel-level restoration
-capability. The training pipeline runs entirely between satellites
-through intra-plane ring AllReduce and inter-plane Gossip mixing,
-with all BN-tagged parameters kept local under the \textsc{FedBN}
-protocol. This avoids both the bandwidth cost of downlinking raw
-observations and the dependence on a centralized ground parameter
-server.
+We presented \OrbitALIF{}, the first end-to-end framework that
+performs both onboard training and onboard inference for optical
+cloud removal on a Walker-Star LEO constellation. The architecture
+is organised around three principles---multi-domain decomposition,
+identity-preserving modulation, and progressive coupling---within
+an SNN-sparsity foundation that supplies the energy advantage. On
+CUHK-CR1 and CUHK-CR2 the centralised $2.30$\,M-parameter backbone
+reaches $25.37$/$23.20$\,dB ($0.7728$/$0.7449$ SSIM), exceeding the
+PlainUNet baseline by $+0.50$\,dB on CR1 and $+0.16$\,dB on CR2,
+and reduces per-image inference energy from $20.75$\,mJ for the
+ANN baseline to $0.287$\,mJ on neuromorphic substrates, a
+$72.3$-fold reduction with a $1.21$-fold conservative bound on
+general-purpose CMOS. Under FedBN-on-SNN with Dirichlet
+$\alpha\!=\!0.1$ source heterogeneity, \OrbitALIF{}-ANN reaches
+$22.679$\,dB ($+0.667$\,dB over PlainUNet), \OrbitALIF{}-SNN
+reaches $21.886$\,dB (within $0.13$\,dB of the ANN baseline), and
+the SNN variant degrades by only $0.126$\,dB when heterogeneity
+tightens tenfold to $\alpha\!=\!0.01$. A component ablation
+confirms that the architecture is a co-designed whole rather than
+the sum of independent module gains.
 
-Empirically, the $2.30$\,M onboard deployment variant attains
-$25.37$\,dB\,/\,$0.7728$ PSNR\,/\,SSIM on CUHK-CR1 and
-$23.20$\,dB\,/\,$0.7449$ on CUHK-CR2, exceeding the PlainUNet
-baseline by $+0.50$\,dB on CR1 and $+0.16$\,dB on CR2. Per-image
-inference energy on a $64\!\times\!64$ patch is estimated as
-$1.21\!\times$ to $72.3\!\times$ lower than the ANN baseline of
-$20.75$\,mJ under standard literature pJ-per-operation constants.
-Component ablations show the building blocks form a co-designed
-whole: removing \SHAM{} or the dual-group \DFRB{} drops PSNR
-\emph{below} the plain ANN baseline, while removing \FQS{} (binary
-spikes) keeps performance above PlainUNet. Under the
-\textsc{FedBN}\,+\,Gossip protocol on the $5\!\times\!10$ Walker-Star
-constellation with source-level Dirichlet $\alpha\!=\!0.1$,
-\OrbitALIF{}-ANN reaches $22.679$\,dB ($+0.667$\,dB over PlainUNet),
-showing the architectural advantage transfers to the decentralized
-setting. \OrbitALIF{}-SNN reaches $21.886$\,dB, within $0.13$\,dB of
-the plain ANN federated baseline and degrading by only $-0.126$\,dB
-under $10\!\times$ stronger heterogeneity ($\alpha\!=\!0.01$).
-
-Future directions include (i) closing the federated-vs-centralized
-gap via partial participation, momentum aggregation, or
-orbital-geometry-aware mixing matrices, and (ii) hardware validation
-on neuromorphic substrates (Loihi-2, Speck, Akida) to replace the
-analytic energy bracket with measured on-orbit power draw.
+Future directions include (i)~moving from the paired-synthetic
+CUHK-CR benchmark to a real on-orbit corpus that captures
+instrument-specific radiometric drift, (ii)~closing the
+centralised-to-federated gap (e.g., $2.86$\,dB on PlainUNet at
+$\alpha\!=\!0.1$) via partial participation, momentum aggregation,
+or orbital-geometry-aware mixing matrices, and (iii)~replacing the
+analytic energy bracket with hardware-measured power on
+neuromorphic substrates such as Loihi-2, Speck, or Akida.
 
 % =====================================================================
 % Bibliography
