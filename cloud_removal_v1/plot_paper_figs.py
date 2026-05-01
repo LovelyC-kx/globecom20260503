@@ -1765,7 +1765,12 @@ _FIG_REGISTRY = {
     6:  ("fig6_energy_bars",             "fig6_energy_bars.pdf"),
     7:  ("fig7_centralized_4panel",      "fig7_centralized_4panel.pdf"),
     9:  ("fig9_per_layer_spike_rate",    "fig9_per_layer_spike_rate.pdf"),
-    10: ("fig10_spike_rate_histogram",    "fig10_spike_rate_histogram.pdf"),
+    # fig10 (r-histogram) intentionally removed from default `--figs all`
+    # output: the strongly right-skewed real distribution exposes that
+    # 77% of MACs are at r→1 (residual / post-BN inputs that bypass LIF
+    # gating), which is unfavourable to the spike-sparsity narrative.
+    # The function fig10_spike_rate_histogram() is kept in this file in
+    # case future analysis needs it, but it is no longer auto-rendered.
 }
 
 
@@ -1787,7 +1792,7 @@ def main(argv=None) -> None:
         6:  fig6_energy_bars,
         7:  fig7_centralized_4panel,
         9:  fig9_per_layer_spike_rate,
-        10: fig10_spike_rate_histogram,
+        # 10: fig10_spike_rate_histogram,  # intentionally disabled — see _FIG_REGISTRY
     }
 
     produced: List[str] = []
