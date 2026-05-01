@@ -382,34 +382,53 @@ Table~\ref{tab:federated}.
 
 Cloud removal places two opposing pressures on the model.
 High-fidelity dense pixel regression demands capacity for
-multi-scale textures and global colour statistics, which favours
-large ANN restoration networks~\cite{ref:cuhkcr} but inflates
-inference energy. Onboard deployment demands sparse event-driven
-computation to fit a watt-level power envelope, which favours
-binary-spike SNNs~\cite{ref:flsnn,ref:esdnet} but caps per-step
-expressivity at one bit. Existing work resolves only one side. We
-instead organise the backbone around four principles that close
-both gaps jointly.
+multi-scale textures, which favours large ANN restoration
+networks~\cite{ref:cuhkcr} but inflates inference energy. Onboard
+deployment demands sparse event-driven computation to fit a
+watt-level power envelope, which favours binary-spike
+SNNs~\cite{ref:flsnn,ref:esdnet} but caps per-step expressivity at
+one bit. We retain SNN sparsity as the energy foundation, and
+within that constraint we organise the architecture around three
+principles. Each principle is motivated by a concrete failure mode
+of single-domain or single-branch SNN designs, and each has
+appeared in isolation in prior restoration work but, to our
+knowledge, has not been jointly invoked.
 
-\textbf{P1: Sparse event-driven activation.} Multi-level quantised
-spikes retain synaptic-operation sparsity for energy savings while
-widening per-step state to five levels.
+\textbf{P1. Multi-domain decomposition.} Cloud artefacts behave
+differently in different representations of the same image. In the
+raw pixel grid they appear as large, smooth regions. In the Fourier
+amplitude spectrum they concentrate in a mid-frequency band. Along
+the time axis of a spike sequence they change little between steps.
+A network that only operates in one of these views, as a stack of
+pure spatial convolutions does, captures only one slice of the
+cloud signature. We therefore let each module decompose its input
+in its own native domain (LIF in the value domain, PixelShuffle-LIF
+in the spatial-block domain, FFT-MLP in the frequency domain,
+temporal-attention in the time domain), and combine the resulting
+components in a downstream fusion stage.
 
-\textbf{P2: Multi-scale frequency processing.} Local high-frequency
-cloud edges, medium-scale texture, and global colour bias are each
-handled by a different operator (spike gating, dual-frequency
-residual, FFT-domain MLP), giving a global receptive field at
-$O(N\log N)$ cost.
+\textbf{P2. Identity-preserving modulation.} Stacking new modules
+on top of a partially-trained backbone is hazardous. A standard
+residual addition $\mathbf{x}+\Phi(\mathbf{x})$ has no learnable
+amplitude, so a new branch contributes from epoch one whether or
+not it is helpful, and a poorly initialised branch can break a
+previously-trained checkpoint. We give every modulation block the
+form $\mathbf{x}\!\mapsto\!\mathbf{x}+\gamma\,(\Phi(\mathbf{x})-\mathbf{x})$,
+a pass-through plus a learnable correction. The scale $\gamma$ is
+initialised at zero, so at training start the module is exactly
+the identity map. Uncorrupted image regions pass through
+unmodified, and modules can be added without collapsing the rest
+of the network.
 
-\textbf{P3: BN locality.} Every normalisation parameter stays
-satellite-local during aggregation, providing the interface to the
-FedBN-on-SNN protocol of Section~\ref{sec:sysmodel-procedure} and
-absorbing source-level cloud-thickness drift.
-
-\textbf{P4: Progressive gated fusion.} Learnable cross-branch gates
-are initialised so each new module is approximately identity at
-training start, letting the network recover gracefully if a branch
-is unstable in the first few epochs.
+\textbf{P3. Progressive coupling.} Two parallel branches sharing
+the same input can compete unstably during early training, and
+external warm-up schedules are brittle and dataset-specific. We
+instead bake the curriculum into the architecture: every
+cross-branch gate is initialised so the cross-talk path is
+initially closed. The cross-scale gate of \DFRB{}, the residual
+scale of \SHAM{}, and the FFT-magnitude scale of FreMLP all start
+from zero. Single-branch features mature first, and inter-branch
+coupling opens gradually as the gates learn during normal training.
 
 The backbone follows a three-level U-shaped encoder--decoder.
 Given a cloudy RGB tile
@@ -425,11 +444,37 @@ cloud-free image as a global residual,
 where $T\!=\!4$ is the spike time horizon and
 $\overline{(\cdot)}^{(T)}$ averages over time. The onboard variant
 uses base channel width $C\!=\!24$ and has approximately
-$2.30$\,M parameters. These principles are instantiated across
-three scales: the neuron level (5QS-LIF, P1), the block level
-(\DFRB{} and \SHAM{}, P2), and the network level (\AGFM{} and
-\SSHB{}, P2 and P4). The training objective and the protocol
-interface that realises P3 close the section.
+$2.30$\,M parameters. Table~\ref{tab:contribution} summarises which
+principle each module instantiates. No single module satisfies all
+of them, and the integration in \OrbitALIF{} is the contribution
+of the remaining subsections of Section~\ref{sec:framework}.
+
+\begin{table}[!t]
+\centering
+\caption{Module--principle contribution matrix. Each module
+satisfies a subset of the architectural priors. MDD denotes
+multi-domain decomposition, IPM identity-preserving modulation, PC
+progressive coupling, GRF global receptive field, and SNN
+spike-compatibility. Only the integrated \OrbitALIF{} backbone
+satisfies all priors simultaneously.}
+\label{tab:contribution}
+\setlength{\tabcolsep}{3.5pt}
+\renewcommand{\arraystretch}{0.95}
+\footnotesize
+\begin{tabular}{lccccc}
+\toprule
+Component & MDD & IPM & PC & GRF & SNN \\
+\midrule
+\DFRB{}                & spat./val.  & ---         & \checkmark  & ---         & \checkmark  \\
+\SHAM{}                & freq./time  & \checkmark  & \checkmark  & \checkmark  & \checkmark  \\
+\AGFM{}                & enc./dec.   & ---         & \checkmark  & ---         & \checkmark  \\
+\SSHB{}                & spat./time  & \checkmark  & ---         & \checkmark  & \checkmark  \\
+\midrule
+\textbf{\OrbitALIF{}}  & \textbf{all} & \textbf{\checkmark} & \textbf{\checkmark} & \textbf{\checkmark} & \textbf{\checkmark} \\
+\bottomrule
+\end{tabular}
+\vspace{-1mm}
+\end{table}
 
 \begin{figure*}[!htbp]
   \centering
@@ -445,135 +490,143 @@ interface that realises P3 close the section.
   \label{fig:overview}
 \end{figure*}
 
-\subsection{\FQS{}: Five-Level Quantized Spike}
-\label{sec:framework-5qs}
+\subsection{Neuron Scale: Quantised Spike Activation}
+\label{sec:framework-neuron}
 
-Binary spikes restrict each step to a one-bit state, insufficient for
-dense pixel restoration. \FQS{} clamps the membrane potential to
-$[0,4]$, rounds, and normalises by 4:
+Onboard inference must be sparse to fit the satellite power
+envelope, but the simplest sparse activation, the binary LIF spike,
+encodes only one bit per step. That coarseness is acceptable when
+the downstream task is classification, the regime in which
+FLSNN~\cite{ref:flsnn} operates, but is too coarse for the dense
+pixel regression of cloud removal, where each output location
+needs a graded amplitude. Existing SNN restoration work such as
+ESDNet~\cite{ref:esdnet} accepts the binary output and compensates
+with deeper or wider networks, which erodes the energy advantage
+the sparsity was meant to deliver. ANN-to-SNN conversion preserves
+amplitude but loses strict event-driven sparsity. We need a neuron
+whose output is sparse enough that synaptic operations can be
+skipped on zero-valued operands, yet expressive enough that one or
+two non-zero outputs already carry an amplitude.
+
+The five-level quantised spike (5QS) clamps the membrane potential
+$u_t$ of a soft-reset LIF neuron to $[0,4]$, rounds, and normalises
+by four,
 \begin{equation}
-o_t
-=
-\frac{\mathrm{round}(\mathrm{clamp}(u_t,0,4))}{4}
-\;\in\;
-\left\{0,\,\tfrac{1}{4},\,\tfrac{1}{2},\,\tfrac{3}{4},\,1\right\}.
+o_t \;=\; \frac{\mathrm{round}(\mathrm{clamp}(u_t,0,4))}{4}\;\in\;
+\Big\{0,\,\tfrac{1}{4},\,\tfrac{1}{2},\,\tfrac{3}{4},\,1\Big\}.
 \label{eq:5qs-forward}
 \end{equation}
-Synaptic operations fire only when $o_t\!>\!0$, preserving
-event-driven sparsity with five amplitude levels.
-Training uses the straight-through surrogate
-$\partial o_t/\partial u_t \approx \tfrac{1}{4}\cdot
-\mathbb{1}\{0\le u_t\le 4\}$.
-Ablation B3 (Section~\ref{sec:exp-ablation}) confirms \FQS{}
-raises PSNR by $+0.302$\,dB over binary spikes.
+The leak rate is $\tau\!=\!0.25$ and the previous spike is
+subtracted before the leak, giving
+$u_t\!=\!(u_{t-1}\!-\!o_{t-1})\tau+i_t$. Synaptic operations fire
+only when $o_t\!>\!0$, which preserves event-driven sparsity, while
+the four non-zero levels carry two bits per step instead of one.
+Training uses the standard straight-through surrogate $\partial
+o_t/\partial u_t \approx \tfrac{1}{4}\cdot\mathbb{1}\{0\!\le\!u_t\!\le\!4\}$.
+This neuron is the SNN-sparsity foundation that all three
+architectural principles operate within, and is the only
+quantitative knob that distinguishes \OrbitALIF{} from a
+conventional ANN at fixed dataflow.
 
-\subsection{\DFRB{}: Dual-Frequency Residual Block}
-\label{sec:framework-dfrb}
+\subsection{Block Scale: Multi-Domain Decomposition}
+\label{sec:framework-block}
 
-Cloud removal needs both temporal LIF responses (cloud boundaries)
-and spatial high-frequency components (fine textures). \DFRB{}
-captures these through two \emph{cascaded} groups. Group~1 applies
-a LIF neuron to decompose $\mathbf{X}$ into high-frequency
-$\mathbf{X}_h$ and residual $\mathbf{X}_l$, then combines them with
-learnable scales and a nonlinear interaction:
+Cloud artefacts are not a single-frequency phenomenon. Their
+boundaries carry high spatial frequency, the cloudy interior is a
+low-spatial-frequency colour cast, and the amplitude spectrum of
+the cloudy patch occupies a band that overlaps with the surface
+texture below. A single $3\!\times\!3$ convolution path cannot
+disentangle these components, since it weights every frequency
+band uniformly. We instantiate principle P1 at the block scale by
+stacking two complementary decompositions, one in the
+pixel-value/spatial domain (\DFRB{}) and one in the time/frequency
+domain (\SHAM{}).
+
+\textbf{Dual-Frequency Residual Block (\DFRB{}).} \DFRB{} routes
+its input through two cascaded groups. Group~1 thresholds the
+input $\mathbf{X}$ in the value domain via a 5QS-LIF neuron,
+producing a high-component $\mathbf{X}_h$ above threshold and a
+low-component $\mathbf{X}_l\!=\!\mathbf{X}\!-\!\mathbf{X}_h$. The
+two are recombined with learnable scales $\alpha_h,\alpha_l$ and a
+multiplicative high-region gate that lets the original signal
+re-enter where the high-component fires,
 \begin{equation}
 \mathbf{Z}_1
-=
-\mathrm{TDBN}(\mathrm{Conv}(
-\alpha_h\mathbf{X}_h + \alpha_l\mathbf{X}_l
-+ \mathbf{X}\odot\mathbf{X}_h)).
+\;=\;
+\mathrm{TDBN}\bigl(\mathrm{Conv}(
+\alpha_h\mathbf{X}_h+\alpha_l\mathbf{X}_l+\mathbf{X}\odot\mathbf{X}_h)\bigr).
 \label{eq:dfrb-g1}
 \end{equation}
-Group~2 applies a \texttt{PixelShuffleLIFBlock} to extract spatial
-high-frequency features $\mathbf{Z}_{2h}$ from $\mathbf{Z}_1$ and
-fuses them via a learnable scalar gate $g$ (initialized to zero so
-that $\sigma(g){=}0.5$ at start and the cross-group path
-$\sigma(g)\,\mathbf{X}_h\!\odot\!\mathbf{Z}_{2h}$ opens gradually).
-A shortcut $\mathrm{Conv}(\mathbf{X})$ is added to $\mathbf{Z}_2$
-before TCS-Att, after which a second residual $\mathbf{X}$ is added
-and \SHAM{} is applied:
-\begin{equation}
-\mathrm{DFRB}(\mathbf{X})
-=
-\SHAM{}\!\Bigl(
-\mathrm{TCS\text{-}Att}\!\bigl(\mathbf{Z}_2 + \mathrm{Conv}(\mathbf{X})\bigr)
-+ \mathbf{X}
-\Bigr).
-\label{eq:dfrb}
-\end{equation}
-Ablation B2 shows removing the dual-group structure drops PSNR by
-$-0.516$\,dB (Section~\ref{sec:exp-ablation}).
+Group~2 applies the same template in the spatial-block domain via
+a $2\!\times$ PixelShuffle-LIF, yielding a between-block
+high-component $\mathbf{Z}_{2h}$. A cross-scale gate $\sigma(g)$
+with $g$ initialised at zero couples the two groups through
+$\sigma(g)\,\mathbf{X}_h\!\odot\!\mathbf{Z}_{2h}$, instantiating P3
+so that each group first matures in isolation. The block closes
+with a shortcut $\mathrm{Conv}(\mathbf{X})$, an additive global
+residual, and a \SHAM{} tail.
 
-\subsection{\SHAM{}: Spectral-Spatial Hybrid Attention}
-\label{sec:framework-sham}
-
-\SHAM{} recalibrates spike features along two orthogonal axes.
-Given $\mathbf{X}\in\mathbb{R}^{T\times C\times H\times W}$, the
-temporal-amplitude attention (TAA) and frequency-spatial attention
-(SFA) operators are
-\begin{align}
-\mathrm{TAA}(\mathbf{X}) &=\mathbf{X}+\mathbf{X}\odot
-\sigma\!\bigl(\mathrm{FC}_{T\to T}(\overline{\mathbf{X}}_\mathrm{sp})\bigr),\\
-\mathrm{SFA}(\mathbf{Z}) &=\mathbf{Z}+\mathbf{Z}\odot\mathbf{w}_S,
-\end{align}
-where $\overline{\mathbf{X}}_\mathrm{sp}$ is a spatial pooled
-descriptor and $\mathbf{w}_S\!\in\![0,1]^{1\times H\times W}$ is the
-spatial mask produced by applying $\mathrm{rFFT2}$ to the temporal
-mean of $\mathbf{Z}$, reweighting the magnitude via a
-\texttt{FreqMLP}, reconstructing via iFFT (phase preserved), and
-projecting through a $7\!\times\!7$ convolution with a sigmoid head.
-Both branches carry their own additive residual, and the outer module
-gate combines them as
+\textbf{Spectral-Spatial Hybrid Attention (\SHAM{}).} \SHAM{}
+re-weights spike features along the two axes that \DFRB{} does not
+touch: the time axis and the Fourier amplitude spectrum. A temporal
+amplitude attention (TAA) reweights the $T$ spike steps with a
+sigmoid gate. A spatial frequency attention (SFA) takes the 2D real
+FFT of the temporal mean, modulates the magnitude with a
+\texttt{FreqMLP}, reconstructs via inverse FFT (phase preserved so
+that spatial structure is not destroyed), and projects through a
+$7\!\times\!7$ convolution with a sigmoid head producing a spatial
+mask. The two branches are composed through an outer P2-style gate,
 \begin{equation}
 \mathrm{SHAM}(\mathbf{X})
-=
+\;=\;
 \mathbf{X}+\sigma(\eta)\bigl(\mathrm{SFA}(\mathrm{TAA}(\mathbf{X}))-\mathbf{X}\bigr),
 \label{eq:sham}
 \end{equation}
-with parameter $\eta$ initialized to zero ($\sigma(\eta){=}0.5$ at
-start). \SHAM{} embeds at the tail of each \DFRB{} (after TCS-Att).
-Its removal drops PSNR by $-0.597$\,dB (Ablation B1).
+with $\eta$ initialised at zero so the module is identity at
+training start. \SHAM{} embeds at the tail of every \DFRB{}.
 
-\subsection{\AGFM{}: Adaptive Gated Fusion}
-\label{sec:framework-agfm}
+\subsection{Network Scale: Gated Fusion and Hyper-Block}
+\label{sec:framework-network}
 
-In thick-cloud regions shallow features are corrupted, while in
-thin-cloud regions they carry reliable textures. \AGFM{} generates a spatially
-varying gate from the concatenated decoder feature $\mathbf{d}$ and
-encoder skip $\mathbf{e}$, fuses them, and passes the result through
-a 5QS-LIF activation and TDBN:
+The network-scale operators address two failure modes that
+block-scale operators cannot fix. First, encoder skip connections
+in a U-Net carry locally accurate textures but also locally
+corrupted features in thick-cloud regions, and a hard skip addition
+mixes both indiscriminately. Second, the highest-resolution
+encoder--decoder level needs a global receptive field to
+hallucinate cloud-occluded surface from distant unoccluded context,
+which a stack of $3\!\times\!3$ convolutions cannot deliver at
+reasonable cost.
+
+\textbf{Adaptive Gated Fusion (\AGFM{}).} \AGFM{} produces a
+spatially varying gate from the concatenated decoder feature
+$\mathbf{d}$ and the encoder skip $\mathbf{e}$, fuses them, and
+routes the result through a 5QS-LIF activation and TDBN,
 \begin{equation}
 \mathbf{f}
-=
-\mathrm{TDBN}\!\left(\mathrm{LIF}\!\left(
-\boldsymbol{\gamma}\odot\mathbf{d}
-+(1-\boldsymbol{\gamma})\odot\mathbf{e}
-\right)\right),\quad
-\boldsymbol{\gamma}=\sigma\!\left(
-\mathrm{Conv}_{1\times1}([\mathbf{d};\mathbf{e}]_C)\right).
+\;=\;
+\mathrm{TDBN}\bigl(\mathrm{LIF}(\boldsymbol{\gamma}\odot\mathbf{d}+(1-\boldsymbol{\gamma})\odot\mathbf{e})\bigr),
 \label{eq:agfm}
 \end{equation}
-\AGFM{} is inserted at the first and second multi-scale levels.
-The deepest level uses a direct encoder--decoder connection.
+with $\boldsymbol{\gamma}\!=\!\sigma\bigl(\mathrm{Conv}_{1\times 1}([\mathbf{d};\mathbf{e}]_C)\bigr)$.
+The gate is per-pixel and per-channel, so the network can trust the
+decoder feature in heavily corrupted regions and the encoder skip
+elsewhere. \AGFM{} is inserted at the first and second multi-scale
+levels, while the deepest level uses a direct encoder--decoder
+connection.
 
-\subsection{\SSHB{}: Spectro-Temporal Spike Hyper-Block}
-\label{sec:framework-sshb}
-
-\SSHB{} enhances full-resolution features through temporal expansion,
-spike-convolutional refinement, and FFT-domain spatial mixing.
-Let $\mathrm{PU}_2$ denote the $2\!\times$ PixelUnshuffle that
-expands the time horizon from $T$ to $T r^2\!=\!16$ at half
-resolution, $\mathrm{Cmp}$ the Conv3d $T r^2\!\to\!T$ temporal
-compression, $\mathrm{Up}_2$ the bilinear $\times 2$ spatial
-upsample, and $\mathrm{Refine}$ two stacked
-$\bigl[\mathrm{LIF}{\to}\mathrm{Conv}{\to}\mathrm{TDBN}{\to}\mathrm{TCS\text{-}Att}\bigr]$
-blocks. Starting from $\mathbf{X}$, \DFRB{} extracts dual-frequency
-responses. PU$_2$ + LIF gate the expanded representation, TCAM
-recalibrates inter-step importance, and Cmp compresses back to $T$
-steps. Refine processes the reduced-resolution features, Up$_2$
-restores the spatial size, and the initial \DFRB{} output is
-skip-added. TCS-Att and the FFT-domain FreqMLP (FSE) close the
-block, providing global receptive field in $O(N\log N)$:
+\textbf{Spectro-Temporal Spike Hyper-Block (\SSHB{}).} \SSHB{} is
+the top-level block. It first applies \DFRB{} for local
+multi-domain decomposition, then expands the time axis from $T$ to
+$Tr^2\!=\!16$ via a $2\!\times$ PixelUnshuffle so that the LIF
+neuron's temporal memory bridges spatial neighbours, applies a
+temporal-channel attention (TCAM) over the expanded steps,
+compresses back to $T$ steps with a Conv3D, refines with two
+stacked $[\mathrm{LIF}\!\to\!\mathrm{Conv}\!\to\!\mathrm{TDBN}\!\to\!\mathrm{TCS\text{-}Att}]$
+units, upsamples by $2\!\times$, and skip-adds the initial \DFRB{}
+output. A FreqMLP (FSE) closes the block to provide a global
+receptive field at $O(N\log N)$ rather than the $O(N^2)$ cost of a
+direct non-local block,
 \begin{equation}
 \begin{aligned}
 \mathrm{SSHB}(\mathbf{X})
@@ -584,27 +637,45 @@ block, providing global receptive field in $O(N\log N)$:
 \end{aligned}
 \label{eq:sshb}
 \end{equation}
+The PixelUnshuffle / Compress pair is the network-scale instance
+of P1: the same signal is decomposed into a longer
+spike-temporal sequence, processed there, and recombined back to
+the spatial domain.
 
-\subsection{Training Objective}
+\subsection{Training Objective and Protocol Interface}
 \label{sec:framework-loss}
 
-\OrbitALIF{} is trained with a composite Charbonnier\,+\,SSIM loss:
+\OrbitALIF{} is trained with a composite Charbonnier and SSIM loss,
 \begin{equation}
 \ell(\hat{\mathbf{y}},\mathbf{y})
 =
 \frac{1}{|\Omega|}\!\sum_{p\in\Omega}
 \sqrt{(\hat{\mathbf{y}}_p-\mathbf{y}_p)^2+\varepsilon^2}
-+\lambda\!\left(1-\mathrm{SSIM}(\hat{\mathbf{y}},\mathbf{y})\right),
++\lambda\bigl(1-\mathrm{SSIM}(\hat{\mathbf{y}},\mathbf{y})\bigr),
 \label{eq:loss}
 \end{equation}
-with $\varepsilon\!=\!10^{-3}$ and $\lambda\!=\!0.1$. Charbonnier
-handles cloud-occlusion outliers robustly, and SSIM preserves structural
-consistency and cloud-boundary sharpness. The constellation training
-pipeline follows Section~\ref{sec:sysmodel}, where all BN-tagged
-parameters are kept local and only non-BN weights are exchanged.
-\textsc{FedBN}~\cite{ref:fedbn} and Gossip~\cite{ref:gossip-boyd}
-are adopted as system-level strategies suited to the constellation
-topology and are not proposed as new FL algorithms.
+with $\varepsilon\!=\!10^{-3}$ and $\lambda\!=\!0.1$. The
+Charbonnier term handles cloud-occlusion outliers more robustly
+than $L^2$, and the SSIM term preserves cloud-boundary sharpness
+and structural consistency that pixelwise losses tend to
+oversmooth.
+
+\textbf{Protocol interface.} The same backbone is trained both
+centrally (Section~\ref{sec:exp-centralized}) and federatedly
+(Section~\ref{sec:exp-federated}). In the federated regime, every
+local copy minimises Eq.~\eqref{eq:loss} on its own data, and the
+constellation pipeline of Section~\ref{sec:sysmodel} mediates
+parameter exchange. \textsc{FedBN}~\cite{ref:fedbn} keeps every
+BN-tagged tensor local, including TDBN threshold parameters, which
+absorbs the source-level cloud-thickness and radiometric drift
+introduced in Section~\ref{sec:sysmodel-setup}.
+Gossip~\cite{ref:gossip-boyd} on the chain topology replaces the
+central parameter server. Both choices are taken from prior work
+and are not claimed as new FL algorithms. The novelty at this
+interface is the joint application to a spiking restoration
+backbone, in particular the explicit handling of TDBN thresholds
+and of spikingjelly's non-tensor state-dict entries during
+aggregation.
 
 % =====================================================================
 % Section IV: Experiments
