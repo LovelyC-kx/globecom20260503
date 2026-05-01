@@ -90,7 +90,10 @@ a FedBN-on-SNN aggregation protocol that runs over intra-plane ring
 AllReduce and inter-plane Gossip mixing. On CUHK-CR1, \OrbitALIF{}
 reaches $25.37$\,dB PSNR while reducing per-image inference energy
 from $20.75$\,mJ for an ANN baseline to $0.287$\,mJ on neuromorphic
-hardware, a $72.3$-fold reduction. Under Dirichlet source
+hardware, a $72.3$-fold reduction. It also stays within $0.81$\,dB
+of the strongest published cloud-removal model on this benchmark at
+a fraction of their parameter count, sitting on the
+PSNR-per-parameter Pareto front. Under Dirichlet source
 heterogeneity of $\alpha\!=\!0.1$, the architectural advantage
 carries over to the federated setting and stays within $0.13$\,dB of
 the ANN counterpart, degrading only $0.126$\,dB when heterogeneity
@@ -235,37 +238,27 @@ reports $\alpha\!=\!0.01$ as a stress test.
 \subsection{Decentralized Training Protocol}\label{sec:sysmodel-procedure}
 
 Training runs for $R\!=\!200$ rounds. Each round has four steps.
-Let $r\!\in\!\{1,\dots,R\}$ index the round and $\mathcal{K}_i$
-denote the set of satellites in plane $i$.
-(S1)~Each satellite takes $E\!=\!2$ local AdamW steps and produces
-$x_{i,k}^{(r,E)}$, the weights of satellite $(i,k)$ after $E$
-steps in round $r$. (S2)~Each plane $i$ runs exact ring-AllReduce
-on its members,
-\begin{equation}
-x_i^{(r+\frac{1}{2})}
-\;=\;
-\frac{1}{K}\sum_{k \in \mathcal{K}_i} x_{i,k}^{(r,E)},
-\label{eq:intraplane}
-\end{equation}
-where the superscript $r\!+\!\tfrac{1}{2}$ marks a half-step
-between rounds. After (S2) every satellite in a plane carries
-identical non-BN weights, so the inter-plane stage treats each
-plane as one logical node. (S3)~Adjacent planes exchange a single
-Gossip step. With $\mathcal{J}(i)$ the set of plane indices
-adjacent to $i$ on the chain (including $i$ itself), and $W$ the
-$N\!\times\!N$ Metropolis mixing matrix~\cite{ref:gossip-boyd},
+Let $r$ index the round and $x_i^{(r)}$ denote the weights shared
+by plane $i$ at the start of round $r$. (S1)~Each satellite takes
+$E\!=\!2$ local AdamW steps. (S2)~Each plane runs an exact
+ring-AllReduce that replaces every member's weights with the plane
+mean of the post-step weights. After (S2) every satellite in a
+plane carries identical non-BN weights, so the inter-plane stage
+treats each plane as one logical node with state
+$x_i^{(r+1/2)}$. (S3)~Adjacent planes exchange a single Gossip
+step under the standard Metropolis mixing
+matrix~\cite{ref:gossip-boyd},
 \begin{equation}
 x_i^{(r+1)}
 \;=\;
-\sum_{j \in \mathcal{J}(i)} W_{ij}\, x_j^{(r+\frac{1}{2})}.
+\sum_{j \sim i \text{ or } j=i} W_{ij}\, x_j^{(r+1/2)},
 \label{eq:gossip}
 \end{equation}
-The off-diagonals are $W_{ij}\!=\!1/(\max(d_i,d_j)\!+\!1)$ for
-adjacent $i,j$, where $d_i$ is the chain-degree (number of
-neighbours) of plane $i$, and the diagonal is
-$W_{ii}\!=\!1\!-\!\sum_{j\sim i} W_{ij}$. The $N\!=\!5$ chain has
-off-diagonals $\tfrac{1}{3}$ and self-weights
-$\{\tfrac{2}{3},\tfrac{1}{3},\tfrac{1}{3},\tfrac{1}{3},\tfrac{2}{3}\}$.
+with $W_{ij}\!=\!1/(\max(d_i,d_j)\!+\!1)$ for adjacent planes
+$i,j$, where $d_i$ counts the chain neighbours of plane $i$, and
+diagonal entries $W_{ii}$ chosen so each row sums to one. On the
+$N\!=\!5$ chain the off-diagonals are $\tfrac{1}{3}$ and the
+self-weights are $\{\tfrac{2}{3},\tfrac{1}{3},\tfrac{1}{3},\tfrac{1}{3},\tfrac{2}{3}\}$.
 (S4)~Plane $i$ broadcasts $x_i^{(r+1)}$ to its members.
 
 \textbf{FedBN-on-SNN.} (S2) and (S3) mix only \emph{shared}
@@ -463,47 +456,33 @@ thick cloud, and a stack of $3\!\times\!3$ convolutions cannot
 deliver the global receptive field that the highest-resolution
 level needs to hallucinate occluded surface from distant context.
 
-\textbf{Adaptive Gated Fusion (\AGFM{}).} Let $\mathbf{d}$ be the
-decoder feature and $\mathbf{e}$ the encoder skip at a given
-multi-scale level. \AGFM{} concatenates them along the channel
-axis ($[\mathbf{d},\mathbf{e}]$), passes through a $1\!\times\!1$
-convolution and a sigmoid to produce a per-pixel per-channel gate
-tensor $\boldsymbol{\gamma}\!=\!\sigma(\mathrm{Conv}_{1\times 1}([\mathbf{d},\mathbf{e}]))$,
-fuses by
-$\boldsymbol{\gamma}\!\odot\!\mathbf{d}+(\mathbf{1}-\boldsymbol{\gamma})\!\odot\!\mathbf{e}$,
-and routes the result through a 5QS-LIF activation and TDBN. The
-$\mathrm{Conv}_{1\times 1}$ logits start at zero so that
-$\boldsymbol{\gamma}$ begins at $\tfrac{1}{2}$ at every entry and
-progressively differentiates, instantiating P3. \AGFM{} sits at
-the first two multi-scale levels. The deepest level uses a direct
-encoder--decoder connection.
+\textbf{Adaptive Gated Fusion (\AGFM{}).} \AGFM{} learns a
+per-pixel per-channel gate that fuses the decoder feature with
+the encoder skip. The gate is the sigmoid output of a
+$1\!\times\!1$ convolution applied to the two features stacked
+along the channel axis. With the convolution logits initialized
+at zero, the gate starts as a balanced $\tfrac{1}{2}/\tfrac{1}{2}$
+mix and progressively differentiates during training (P3).
+\AGFM{} sits at the first two multi-scale levels. The deepest
+level uses a direct encoder--decoder connection.
 
 \textbf{Spectro-Temporal Spike Hyper-Block (\SSHB{}).} \SSHB{} is
-the top-level block. With $r$ the PixelUnshuffle downsampling
-factor (we set $r\!=\!2$), it first applies \DFRB{}, then expands
-the time axis from $T$ to $Tr^2\!=\!16$ via a PixelUnshuffle so
-that LIF temporal memory bridges spatial neighbours, applies a
-temporal-channel attention over the expanded steps, and compresses
-back to $T$ steps with a Conv3D. A second \DFRB{} skip-add and a
-FreqMLP (FSE) close the block. FSE is adapted from the
-frequency-domain MLP of DarkIR~\cite{ref:darkir2024} with
-magnitude scale $\gamma_F$ initialized at zero (P2). It runs in
-$O(M \log M)$ time where $M\!=\!HW$ is the number of pixels per
-feature map, smaller than the $O(M^2)$ cost of a direct non-local
-block. The PixelUnshuffle / Compress pair is the network-scale
-instance of P1: the signal decomposes into a longer spike-temporal
-sequence, is processed there, and recombines back to the spatial
-domain.
+the top-level block. It applies \DFRB{}, expands the time axis
+fourfold via a $2\!\times$ PixelUnshuffle so that LIF temporal
+memory bridges spatial neighbours, applies temporal-channel
+attention, and compresses back via a Conv3D. A second \DFRB{}
+skip-add and a frequency-domain MLP (FSE, adapted from
+DarkIR~\cite{ref:darkir2024} with magnitude scale initialized at
+zero, instantiating P2) close the block. The FFT route gives a
+global receptive field at near-linear cost in pixel count rather
+than the quadratic cost of a direct non-local layer. The
+PixelUnshuffle/Compress pair is the network-scale instance of P1.
 
 \subsection{Training Objective and Protocol Interface}
 \label{sec:framework-loss}
 
-Let $\Omega$ be the set of pixel positions in a tile, $|\Omega|$
-its cardinality, and $p\!\in\!\Omega$ a pixel index, with
-$\hat{\mathbf{y}}_p$ and $\mathbf{y}_p$ the predicted and ground
-truth RGB values at pixel $p$. \OrbitALIF{} is trained with a
-composite Charbonnier and Structural Similarity Index Measure
-(SSIM) loss,
+\OrbitALIF{} is trained with a per-pixel Charbonnier loss plus a
+Structural Similarity Index Measure (SSIM) term,
 \begin{equation}
 \ell(\hat{\mathbf{y}},\mathbf{y})
 =
@@ -512,11 +491,12 @@ composite Charbonnier and Structural Similarity Index Measure
 +\lambda\bigl(1-\mathrm{SSIM}(\hat{\mathbf{y}},\mathbf{y})\bigr),
 \label{eq:loss}
 \end{equation}
-with smoothing constant $\varepsilon\!=\!10^{-3}$ and SSIM weight
-$\lambda\!=\!0.1$. The Charbonnier term handles cloud-occlusion
-outliers more robustly than the squared-error $L^2$, and the SSIM
-term preserves cloud-boundary sharpness that pixelwise losses tend
-to oversmooth.
+where $\Omega$ is the pixel set of a tile, $\hat{\mathbf{y}}_p$ and
+$\mathbf{y}_p$ are the predicted and ground-truth RGB values at
+pixel $p$, $\varepsilon\!=\!10^{-3}$ is a smoothing constant, and
+$\lambda\!=\!0.1$ weights the SSIM term. The Charbonnier term is
+robust to cloud-occlusion outliers, and SSIM preserves
+cloud-boundary sharpness that pixelwise losses tend to oversmooth.
 
 \textbf{Protocol interface.} The same backbone is trained both
 centrally (Section~\ref{sec:exp-centralized}) and federatedly
@@ -608,9 +588,7 @@ consumes $20.75$\,mJ over the $4.51$\,GMAC inference.
 Speck, Akida class substrates), a $72.3\!\times\!$ reduction, and
 $17.14$\,mJ in the upper bound (general-purpose CMOS without
 neuromorphic acceleration), a $1.21\!\times\!$ reduction. The MAC-weighted average non-zero rate
-$\bar{r}\!=\!\sum_\ell \mathrm{MAC}_\ell\,r_\ell / \sum_\ell \mathrm{MAC}_\ell$
-is $\bar{r}_{\rm CR1}\!=\!0.826$ and
-$\bar{r}_{\rm CR2}\!=\!0.823$ on the two splits respectively,
+across layers is $0.826$ on CR1 and $0.823$ on CR2,
 indistinguishable at two decimal places. Per-layer hooks on LIF
 and \FQS{} modules show $20$\,--\,$70\,\%$ non-zero activation,
 with \FQS{} layers higher because four of five quantization levels
