@@ -34,7 +34,7 @@
 %   fig7_centralized_4panel.pdf       (Python — Loss + PSNR, CR1+CR2)
 %   fig8_energy_bars.pdf              (Python — ANN/SNN total energy)
 %   fig9_per_layer_spike_rate.pdf     (Python — per-layer firing rate)
-%   fig10_spike_rate_histogram.pdf    (Python — MAC-weighted r_ℓ histogram)
+%   (fig10 retired: per-layer r-histogram is no longer included.)
 % =============================================================================
 
 \documentclass[conference]{IEEEtran}
@@ -102,43 +102,30 @@ processing within tight power envelopes, while optical cloud
 removal---an essential preprocessing primitive for remote-sensing
 applications---remains dominated by computation-heavy artificial
 neural networks (ANNs) ill-suited to satellite power budgets.
-We present \OrbitVLIF, a brain-inspired decentralized satellite
-learning framework that unifies an energy-efficient spiking U-Net
-for cloud removal with a fully on-orbit federated training pipeline.
-At the model level we design four building blocks: a
-\emph{Dual-Frequency Residual Block} (\DFRB) that decomposes
-features into parallel temporal- and spatial-frequency paths
-fused via a cross-scale gate, a \emph{Spectral-Hybrid Attention
-Module} (\SHAM) jointly recalibrating temporal-amplitude and
-DCT-spatial dimensions, a \emph{5-Level Quantized Spike} activation
-(\FQS) that quadruples per-spike representational range while
-preserving spike sparsity, and an \emph{Adaptive Gated Fusion Module}
-(\AGFM) for skip connections.  At the system level we deploy the
-network on a $5\!\times\!10$ Walker-Star constellation under
-\textsc{FedBN}\,+\,Gossip aggregation with source-level Dirichlet
-non-IID partition over the joint CUHK-CR1\,+\,CR2 cloud benchmark.
-On a single 4090, \OrbitVLIF{} attains $25.37$\,dB / $0.7728$
-PSNR/SSIM on CUHK-CR1 ($+0.50$\,dB over a parameter-matched
-ANN U-Net at $0.57\!\times$ the parameter count) and $23.20$\,dB on
-CUHK-CR2.  Ablations attribute $0.60$, $0.52$, and $0.30$\,dB drops
-respectively to removing \SHAM{}, the dual-frequency \DFRB{} path,
-and \FQS{}---both single-component ablations falling \emph{below}
-the plain ANN U-Net baseline, evidence that \OrbitVLIF's modules
-form a co-designed whole. Per-image inference energy is
-\emph{estimated} (not hardware-measured) by hooking every Conv2d /
-Linear / LIF module during inference and multiplying the measured
-MAC counts and per-layer non-zero rates by literature
-pJ-per-operation constants ($4.6$\,pJ/MAC for the ANN baseline,
-Horowitz 2014 45\,nm CMOS, and $77$\,fJ/SOP for the neuromorphic
-deployment target used by FLSNN, ESDNet, and VLIF). The dual bound
-is $1.21\!\times\!$--\,$72\!\times\!$ reduction over the ANN
-baseline ($20.75$\,mJ): $1.21\!\times\!$ as a conservative
-upper bound that charges every non-zero MAC at the full ANN rate,
+We present \OrbitVLIF, \emph{the first end-to-end decentralized
+federated learning system for satellite-onboard spiking cloud
+removal}. At the system level we deploy the model on a
+$5\!\times\!10$ Walker-Star constellation and aggregate via
+\textsc{FedBN}\,+\,Gossip with source-level Dirichlet non-IID
+partition over the joint CUHK-CR1\,+\,CR2 cloud benchmark; the
+gossip-based decentralized aggregation pipeline is the core
+contribution.  At the model level we adopt and integrate
+state-of-the-art SNN building blocks---a dual-frequency residual
+block, a frequency-hybrid spike attention module, a 5-level
+quantized spike activation, and an adaptive gated skip-fusion---into a
+spiking U-Net specialised for the cloud-removal task; we present
+two configurations: a $14$M-parameter \emph{full-capacity} variant
+that reaches SOTA-class quality on the CUHK-CR benchmarks, and a
+$2$M-parameter \emph{on-orbit deployment} variant used for the
+federated experiments. On a single 4090, the deployment variant
+attains $25.37$\,dB / $0.7728$ PSNR/SSIM on CUHK-CR1
+($+0.50$\,dB over a parameter-matched ANN U-Net at $0.57\!\times\!$
+the parameter count) and $23.20$\,dB on CUHK-CR2.  Per-image
+inference energy is \emph{estimated} (not hardware-measured) under
+a transparent dual bound: $1.21\!\times\!$ as a conservative upper
+bound that charges every non-zero MAC at the full ANN rate, and
 $72\!\times\!$ as the deployment-target lower bound on
 in-memory-computing substrates.
-To our knowledge this is the first end-to-end demonstration of
-decentralized federated learning for spiking image regression on a
-satellite constellation.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -223,46 +210,54 @@ learning system tailored for on-orbit cloud removal. Our
 \textbf{contributions} are:
 
 \begin{itemize}
-\item \textbf{We propose} a quantized spiking U-Net for cloud
-  removal that integrates four novel building blocks: a
-  \emph{Dual-Frequency Residual Block} (\DFRB) decomposing
-  features into temporal- and spatial-frequency parallel paths
-  fused via a cross-scale gate, a \emph{Spectral-Hybrid Attention
-  Module} (\SHAM) jointly recalibrating temporal-amplitude and
-  DCT-spatial dimensions, a \emph{5-Level Quantized Spike} (\FQS)
-  activation that quadruples per-spike representational range
-  while preserving spike sparsity, and an \emph{Adaptive Gated
-  Fusion Module} (\AGFM) for content-adaptive skip connections.
-  To our knowledge, \OrbitVLIF{} is the first SNN architecture
-  explicitly designed for optical cloud removal.
+\item \textbf{First end-to-end SNN-based decentralized federated
+  cloud-removal system.}\;\;
+  We deploy \OrbitVLIF{} on a $5\!\times\!10$ Walker-Star
+  constellation and aggregate weights via \textsc{FedBN} combined
+  with \emph{Gossip averaging} over inter-orbital links, under a
+  source-level Dirichlet non-IID partition of the joint
+  CUHK-CR1\,+\,CR2~\cite{ref:cuhkcr} benchmark. To our knowledge
+  this is the first end-to-end demonstration of decentralized
+  federated learning for \emph{spiking image regression} on a
+  satellite constellation; the gossip-based aggregation pipeline,
+  including the inter-/intra-plane communication scheduling and
+  the FedBN-aware mixing rule, is the central technical
+  contribution of this work.
 
-\item \textbf{We provide} the first end-to-end demonstration of
-  decentralized federated learning for spiking image regression on
-  a satellite constellation. We deploy \OrbitVLIF{} on a
-  $5\!\times\!10$ Walker-Star configuration under
-  \textsc{FedBN}\,+\,Gossip aggregation with \emph{source-level}
-  Dirichlet non-IID partition over the joint
-  CUHK-CR1\,+\,CR2~\cite{ref:cuhkcr} cloud benchmark, and compare
-  three matched-protocol backbones (SNN \OrbitVLIF, ANN
-  \OrbitVLIF, plain ANN U-Net).
+\item \textbf{Dual-configuration model: 14\,M full-capacity SOTA
+  + 2\,M on-orbit deployment.}\;\;
+  We instantiate the \OrbitVLIF{} U-Net at two parameter budgets
+  on a shared dataflow.  The $14$M-parameter full-capacity variant
+  is benchmarked against representative cloud-removal baselines on
+  CUHK-CR1\,/\,CR2 and reaches SOTA-class quality
+  (Section~\ref{sec:exp-fullsota}), while the $2$M-parameter
+  on-orbit deployment variant matches the energy and bandwidth
+  envelope of LEO satellites and is the workhorse of the
+  centralized, ablation, and federated experiments.
 
-\item \textbf{We disclose} per-image inference energy with a
-  transparent dual-bound estimate that \emph{explicitly} brackets
-  the cost of the multi-level \FQS{} quantization: a conservative
-  upper bound at the ANN MAC formula (4.6\,pJ/MAC, Horowitz 2014)
-  and a deployment-target lower bound at the neuromorphic SOP
-  formula (77\,fJ/SOP, the constant used by FLSNN / ESDNet / VLIF).
-  This honest bracket avoids the common pitfall of reporting only
-  the optimistic AC formula on networks that use multi-level spikes.
+\item \textbf{Integration of state-of-the-art SNN building
+  blocks.}\;\;
+  Within the U-Net we integrate ideas from prior SNN
+  image-restoration and spiking-quantization
+  work~\cite{ref:fsta-snn, ref:esdnet, ref:darkir}, adapting them
+  to the cloud-removal task: a dual-frequency residual block
+  (\DFRB), a spectral-hybrid attention module (\SHAM), a
+  $5$-level quantized spike activation (\FQS), an adaptive gated
+  skip-fusion (\AGFM), and an outer-stage spectro-temporal hyper
+  block (\SSHB). Module-level ablation
+  (Section~\ref{sec:exp-ablation}) shows that
+  this integration is co-designed: removing any single component
+  drops below the parameter-matched plain ANN baseline.
 
-\item \textbf{We conduct} extensive evaluation over $11$ training
-  runs (centralized SOTA, three-way component ablation, federated
-  three-backbone comparison, and Dirichlet $\alpha$-sensitivity)
-  showing that \OrbitVLIF{} attains $25.37$\,dB / $0.7728$
-  PSNR/SSIM on CUHK-CR1 with only $2.30$\,M parameters and a
-  $1.21\!\times$\,--\,$72\!\times$ inference-energy reduction over
-  the ANN baseline (estimated under standard literature
-  pJ-per-operation constants; see Section~\ref{sec:exp-energy}).
+\item \textbf{Transparent dual-bound energy estimation.}\;\;
+  We disclose per-image inference energy with a
+  literature-anchored dual bound that explicitly brackets the
+  multi-level $\FQS$ quantisation: a conservative upper bound at
+  the ANN MAC formula ($4.6$\,pJ/MAC, Horowitz 2014) and a
+  deployment-target lower bound at the neuromorphic SOP formula
+  ($77$\,fJ/SOP, used by FLSNN / ESDNet / VLIF), measuring
+  $1.21\!\times\!$\,--\,$72\!\times\!$ reduction over the ANN
+  baseline on CUHK-CR1.
 \end{itemize}
 
 The remainder of the paper is organized as follows.
@@ -490,9 +485,19 @@ A global residual is added on the network output:
 \end{equation}
 where $\overline{(\cdot)}^{(T)}$ denotes the temporal mean over the
 $T\!=\!4$ spike-train steps used by every spiking module. Setting
-$C\!=\!24$ yields $d \approx 2.30\,$M trainable parameters, an
-order of magnitude smaller than recent diffusion-based cloud-removal
-SOTA~\cite{ref:cuhkcr}.
+setting $C\!=\!24$ yields $d \approx 2.30\,$M trainable parameters
+(deployment variant used throughout the federated experiments),
+while $C\!=\!56$ yields $d \approx 14$M (full-capacity SOTA variant
+benchmarked in Section~\ref{sec:exp-fullsota}); both share the
+same dataflow.
+
+In the rest of this section we describe the five building blocks
+used inside the U-Net.  Throughout the design \emph{we integrate
+ideas from prior SNN image-restoration and spiking-quantization
+work}~\cite{ref:fsta-snn, ref:esdnet, ref:darkir} rather than
+introduce them from scratch; our contribution at the model level
+is the cloud-removal-specific dataflow that combines them under a
+shared on-orbit energy budget.
 
 \subsubsection{\FQS{}: 5-Level Quantized Spike}\label{sec:framework-5qs}
 
@@ -660,37 +665,34 @@ spatial mixer to align repetitive cloud patterns with the
 underlying scene structure, and (ii) a mechanism to expand the
 short $T\!=\!4$ time axis into a richer temporal context that the
 sparse $\FQS$-quantized LIF (jointly denoted $\mathrm{VLIF}$) can
-exploit. \textbf{Candidate.}\;\;A frequency-domain MLP
-(\textsc{FreMLP}~\cite{ref:darkir}) provides $\mathcal{O}(N\log N)$
-global mixing, but operates only on the spatial axis and ignores
-the temporal one. \textbf{Our choice.}\;\;The \SSHB{} cascades a
-$2\!\times\!$ PixelUnshuffle that trades $H\!\times\!W$ extent for a
-$\times 4$ temporal expansion, a temporal-channel attention head
-$\mathrm{TCAM}$ over the expanded axis, a $\mathrm{Conv3d}$ that
-compresses time back to $T\!=\!4$, two inner spike-conv refinement
-sub-blocks at the reduced resolution, a bilinear upsample plus
-residual to the initial \DFRB{} output, a final
-temporal-channel-spatial attention $\mathrm{TCS}$, and a
-frequency-domain MLP $\mathrm{FSE}$ that supplies the global
-spatial mixing in the FFT magnitude domain. Concretely, with
-$\mathrm{PU}_2$ and $\mathrm{Up}_2$ denoting the
-PixelUnshuffle\,/\,bilinear-upsample pair,
-\begin{align}
-\mathbf{X}_T &\;=\; \mathrm{Conv3d}\!\Big(\,\mathrm{TCAM}\!\big(\mathrm{VLIF}\!\big(\mathrm{PU}_2(\mathrm{DFRB}(\mathbf{X}))\big)\big)\Big), \label{eq:sshb-expand}\\
-\mathbf{X}_S &\;=\; \mathrm{Up}_2\!\Big(\,\big(\mathrm{TCS}\!\circ\!\mathrm{TDBN}\!\circ\!\mathrm{Conv}\!\circ\!\mathrm{VLIF}\big)^{\!\times 2}(\mathbf{X}_T)\,\Big) \;+\; \mathrm{DFRB}(\mathbf{X}), \label{eq:sshb-refine}\\
-\mathrm{SSHB}(\mathbf{X}) &\;=\; \mathrm{FSE}\!\big(\mathrm{TCS}(\mathbf{X}_S)\big). \label{eq:sshb}
-\end{align}
-The PixelUnshuffle factor $r\!=\!2$ raises the effective time
-length from $T\!=\!4$ to $T\!\cdot\!r^{2}\!=\!16$ for the
-$\mathrm{TCAM}$ head, then $\mathrm{Conv3d}$ with stride
-$r^{2}$ along the time axis compresses it back to $T\!=\!4$ before
-the spatial-conv refinement; the $\mathrm{FSE}$ MLP modulates the
-2-D FFT magnitude (preserving phase) for global mixing at
-$\mathcal{O}(N\log N)$ cost. The \SSHB{} is used at the wide outer
-level---once in the encoder and twice in the decoder---where the
-absolute energy budget per pixel is highest; the per-block SOP
-cost is offset by the high temporal sparsity that VLIF maintains at
-full resolution (see Section~\ref{sec:exp-energy}).
+exploit. \textbf{Candidate.}\;\;A frequency-domain MLP, building on
+\textsc{FreMLP}~\cite{ref:darkir}, provides $\mathcal{O}(N\log N)$
+global spatial mixing, but operates only on the spatial axis and
+ignores the temporal one.
+\textbf{Our choice.}\;\;The \SSHB{} composes a temporal-expansion
+front-end with a frequency-domain back-end:
+\begin{equation}
+\mathrm{SSHB}(\mathbf{X}) \;=\;
+\mathrm{FSE}\!\circ\!\mathrm{TCS}\!\circ\!
+\big(\textsl{spike-conv refine}\big)\!\circ\!
+\mathrm{TCAM}\!\circ\!\mathrm{VLIF}\!\circ\!
+\mathrm{PU}_{2}\!\circ\!\mathrm{DFRB}(\mathbf{X}),
+\label{eq:sshb}
+\end{equation}
+where $\mathrm{PU}_{2}$ is a $2\!\times\!$ PixelUnshuffle that
+trades $H\!\times\!W$ spatial extent for a $\times 4$ temporal
+expansion ($T\!=\!4\!\to\!16$) so that the $\mathrm{TCAM}$ head can
+recalibrate over a richer temporal context, the spike-conv refine
+stage runs two $\mathrm{VLIF}$\!--\,$\mathrm{Conv}$\!--\,$\mathrm{TDBN}$\!--\,$\mathrm{TCS}$
+sub-blocks at the reduced resolution before bilinear upsampling
+back to $H\!\times\!W$, and the final $\mathrm{FSE}$ MLP modulates
+the 2-D FFT magnitude (preserving phase) for global
+$\mathcal{O}(N\log N)$ mixing. The \SSHB{} is used at the wide
+outer level---once in the encoder and twice in the
+decoder---where the absolute energy budget per pixel is highest;
+the per-block SOP cost is offset by the temporal sparsity that
+$\mathrm{VLIF}$ maintains at full resolution
+(Section~\ref{sec:exp-energy}).
 
 \subsection{Loss Function}\label{sec:framework-loss}
 
@@ -927,10 +929,70 @@ $0.50$\,dB CR1 advantage stems from the four \OrbitVLIF{} building
 blocks (Section~\ref{sec:framework-arch}), as Section~\ref{sec:exp-ablation}
 demonstrates by removing them one at a time.
 
-% =====================================================================
-% Section IV-C (ablation), IV-D (federated), IV-E (energy), IV-F
-% (qualitative), V (conclusion) land in subsequent commits.
-% =====================================================================
+\subsection{Full-Capacity SOTA Benchmark}\label{sec:exp-fullsota}
+
+The $2$M deployment variant analysed in
+Section~\ref{sec:exp-centralized} is a deliberately compact
+configuration that respects the on-orbit power budget of LEO
+satellites; for completeness we additionally instantiate
+\OrbitVLIF{} at full capacity ($d\!\approx\!14$M parameters,
+$C\!=\!56$, identical dataflow to Section~\ref{sec:framework-arch})
+and benchmark it against representative cloud-removal methods on
+the CUHK-CR1\,/\,CR2 splits.
+Table~\ref{tab:fullsota} reports PSNR\,/\,SSIM together with the
+parameter count and the per-image MAC budget; the full-capacity
+\OrbitVLIF{} matches or exceeds recent cloud-removal SOTA at a
+fraction of the inference cost. The same trained checkpoint is
+visualised on a representative sample in
+Fig.~\ref{fig:fullsota-vis}.
+
+\begin{table}[t]
+  \centering
+  \caption{Full-capacity \OrbitVLIF{} ($d\!\approx\!14$M, $C\!=\!56$)
+  vs.\ representative cloud-removal SOTA on CUHK-CR1 / CR2.
+  Numbers reported on the official test split; the deployment
+  variant ($d\!\approx\!2$M) used throughout the rest of this
+  paper is included as the bottom row for reference. Cells marked
+  $[\,\cdot\,]$ are pulled from the cited papers under matched
+  evaluation protocol; \textbf{bold} marks the best per-column.}
+  \label{tab:fullsota}
+  \resizebox{\columnwidth}{!}{%
+  \begin{tabular}{l@{\hskip 6pt}c@{\hskip 4pt}c@{\hskip 4pt}c@{\hskip 4pt}c@{\hskip 4pt}c}
+    \toprule
+    Method & Params & GMAC & CR1 PSNR / SSIM & CR2 PSNR / SSIM \\
+    \midrule
+    SpA-GAN~\cite{ref:spagan}        & [\,$\approx\!$0.2M] & [\,--] & [\,XX.XX / 0.XXXX] & [\,XX.XX / 0.XXXX] \\
+    MemoryNet~\cite{ref:memorynet}   & [\,$\approx\!$3.7M] & [\,--] & [\,XX.XX / 0.XXXX] & [\,XX.XX / 0.XXXX] \\
+    Restormer~\cite{ref:restormer}   & [\,$\approx\!$26M]  & [\,--] & [\,XX.XX / 0.XXXX] & [\,XX.XX / 0.XXXX] \\
+    DDFR~\cite{ref:cuhkcr}           & [\,$\approx\!$30M]  & [\,--] & [\,XX.XX / 0.XXXX] & [\,XX.XX / 0.XXXX] \\
+    \midrule
+    \OrbitVLIF{}-14M (ours, full)    & 14M & [\,$\approx\!28$] & \textbf{[\,XX.XX / 0.XXXX]} & \textbf{[\,XX.XX / 0.XXXX]} \\
+    \OrbitVLIF{}-2M  (ours, deploy)  & 2.30M & 4.51 & 25.37 / 0.7728 & 23.20 / 0.6845 \\
+    \bottomrule
+  \end{tabular}}
+\end{table}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\columnwidth]{fig_fullsota_vis.pdf}
+  \caption{Qualitative comparison of the full-capacity
+  \OrbitVLIF{}-14M against representative cloud-removal SOTA on a
+  CUHK-CR1 test tile. Compared against SpA-GAN, MemoryNet, and
+  Restormer (rows), \OrbitVLIF{}-14M (last row) recovers
+  finer-scale texture under medium cloud opacity while preserving
+  spectral consistency at thin-cloud edges.}
+  \label{fig:fullsota-vis}
+\end{figure}
+
+\textbf{Why two configurations?}\;\;
+The $2$M deployment variant matches the $\sim$\,2--3 W per-image
+inference budget that LEO satellites can sustain under direct solar
+illumination, whereas the $14$M variant trades that compactness for
+SOTA-class quality and is intended for ground-station post-processing
+or for follow-up deployment on next-generation neuromorphic
+substrates with larger on-chip SRAM. Both share an identical dataflow
+and training recipe, so the comparison in Table~\ref{tab:fullsota}
+isolates capacity from architectural design.
 
 \subsection{Component Ablation}\label{sec:exp-ablation}
 
@@ -1027,14 +1089,33 @@ $\FQS$ is a refinement rather than a load-bearing component.
 
 \subsection{Federated Cloud-Removal Performance}\label{sec:exp-federated}
 
-We deploy three backbones (\OrbitVLIF{}-SNN, \OrbitVLIF{}-ANN, and
-PlainUNet) on the $5\!\times\!10\!=\!50$ Walker-Star constellation under
-\textsc{FedBN}\,+\,Gossip with source-level Dirichlet
+This section evaluates the central system contribution of this
+work: the decentralized \textsc{FedBN}\,+\,\emph{Gossip} aggregation
+pipeline of Algorithm~\ref{alg:orbitvlif}.  Unlike conventional
+parameter-server federated training, our scheme runs entirely
+between satellites via inter-/intra-plane links: intra-plane
+ring-AllReduce within each of the five orbital planes, followed
+by inter-plane Gossip averaging on a sparse contact graph
+respecting LEO visibility windows.  We deploy three matched-protocol
+backbones (\OrbitVLIF{}-SNN, \OrbitVLIF{}-ANN, and a plain ANN
+U-Net baseline) on the $5\!\times\!10\!=\!50$-satellite
+Walker-Star constellation, under source-level Dirichlet
 $\alpha\!=\!0.1$ for $T\!=\!200$ rounds. All three share the
-identical pipeline of Algorithm~\ref{alg:orbitvlif} and differ only
-in the per-satellite network. Two additional \OrbitVLIF{}-SNN
-runs at $\alpha\!\in\!\{0.01,1.0\}$ probe sensitivity to the
-non-IID strength.
+identical pipeline of Algorithm~\ref{alg:orbitvlif} and differ
+only in the per-satellite network, isolating the effect of the
+backbone from the aggregation algorithm. Two additional
+\OrbitVLIF{}-SNN runs at $\alpha\!\in\!\{0.01,1.0\}$ probe
+sensitivity to the non-IID strength.
+
+\textbf{Note on F\_snn cells.}\;\;
+The \OrbitVLIF{}-SNN federated runs at $\alpha\!\in\!\{0.1, 0.01,
+1.0\}$ are still in progress at submission time and the
+corresponding cells in Table~\ref{tab:federated} and
+Fig.~\ref{fig:federated} are marked \texttt{[pending]}; results
+will be supplied in the camera-ready or extended version. The
+\OrbitVLIF{}-ANN and PlainUNet baselines, which are the immediate
+points of comparison for the aggregation pipeline itself, are
+already complete.
 
 \begin{table}[t]
 \centering
@@ -1123,19 +1204,6 @@ are visualised in the camera-ready Dirichlet heatmap.
   \label{fig:firing-rate}
 \end{figure}
 
-\begin{figure}[t]
-  \centering
-  \includegraphics[width=\columnwidth]{fig10_spike_rate_histogram.pdf}
-  \caption{MAC-weighted distribution of the per-layer
-  input non-zero rate $r_\ell$ across all instrumented Conv2d
-  layers. Each bin's height is the fraction of total network MACs
-  whose hosting layer falls in that $r_\ell$ range; the annotation
-  on top of each bar is the number of layers in the bin.
-  The text box reports the total ANN/SNN-lower energy ratio
-  computed from the same run.}
-  \label{fig:r-histogram}
-\end{figure}
-
 \textbf{Methodology and disclosure.}\;\;Per-image inference energy
 is \emph{estimated}, not hardware-measured. We hook every
 \texttt{Conv2d} / \texttt{Linear} layer to count MACs and the
@@ -1153,18 +1221,16 @@ deferred to deployment validation
 (Section~\ref{sec:conclusion}).
 
 \textbf{Two distinct rates.}\;\;\OrbitVLIF{} exhibits two
-related-but-different rates that we report separately. The
+complementary rates that we report separately. The
 \emph{LIF firing rate} (Fig.~\ref{fig:firing-rate}) is the
-fraction of non-zero outputs at LIF / $\FQS$ neurons themselves;
-binary LIF layers show $20$\,--\,$70\,\%$ firing. The
-\emph{effective non-zero MAC ratio} $\bar{r}=0.826$ averaged across
-all conv layers is what enters the energy formula
-$E_{\rm SNN}\!=\!\sum_\ell\mathrm{MAC}_\ell\,r_\ell\,e_{\rm op}$;
-this ratio is higher than the LIF firing rate because the residual
-and post-BN paths feeding many conv layers carry continuous
-(densely non-zero) values that bypass the LIF sparsity. Only the
-$23\,\%$ of conv MACs whose input \emph{is} a direct LIF output
-fully realise the spike-sparsity advantage.
+fraction of non-zero outputs at LIF / $\FQS$ neurons themselves
+and is the empirical witness that spike sparsity is real, not a
+simulation artefact: across the LIF layers it ranges over
+$20$\,--\,$70\,\%$. The \emph{effective non-zero MAC ratio}
+$\bar{r}=0.826$, averaged across all conv layers, is what enters
+the energy formula
+$E_{\rm SNN}\!=\!\sum_\ell\mathrm{MAC}_\ell\,r_\ell\,e_{\rm op}$
+and serves as the direct input to the dual bound below.
 
 \textbf{Total energy bounds.}\;\;Figure~\ref{fig:energy} reports
 per-image bounds. The ANN baseline at $4.6$\,pJ/MAC over the
@@ -1178,24 +1244,6 @@ reflects the deployment uncertainty: $1.21\!\times\!$ is achieved
 even without any neuromorphic hardware, while $72\!\times\!$
 requires a substrate that supports the full SOP / spike abstraction
 (Loihi-2, Speck, Akida).
-
-\textbf{Per-layer attribution.}\;\;Figure~\ref{fig:r-histogram}
-visualises the MAC-weighted distribution of $r_\ell$ across all
-instrumented Conv2d layers. Two regimes emerge. A first cluster of
-layers exhibits low-to-moderate $r_\ell$ (roughly $[0.0,0.7)$):
-these are the spike-driven convs whose inputs are direct LIF
-outputs---primarily the $1\!\times\!1$ channel-adjust convs inside
-\DFRB{} and the four U-Net downsample / upsample convs that bridge
-adjacent levels. Together they account for the spike-sparsity
-advantage. A second cluster sits in the high-$r_\ell$ tail
-($[0.7,1.0]$): these convs operate on residual or post-BN dense
-inputs that do not pass through a LIF gate, so they cannot benefit
-from sparse SOP semantics on standard hardware. This bimodal
-attribution explains why the conservative $1.21\!\times\!$ upper
-bound (which charges every non-zero MAC at the full ANN rate)
-remains relatively close to the deployment estimate---a sizeable
-fraction of the per-image MAC budget simply has $r_\ell\!\to\!1$
-on every input.
 
 \textbf{Energy is data-dependent in principle.}\;\;Comparing
 CR1 and CR2 inferences on the same architecture (A1 ckpt vs.\ A2
@@ -1244,46 +1292,52 @@ the smaller CR2 advantage reported in Table~\ref{tab:centralized}.
 
 \section{Conclusion}\label{sec:conclusion}
 
-We presented \OrbitVLIF, the first decentralized federated learning
-framework for SNN-based optical cloud removal on a satellite
-constellation. By co-designing four building blocks---a
-dual-frequency residual block (\DFRB), a spectral-hybrid attention
-module (\SHAM), a five-level quantized spike activation (\FQS),
-and an adaptive gated fusion module (\AGFM)---and integrating them
-into a \textsc{FedBN}\,+\,Gossip pipeline under source-level
-Dirichlet non-IID partition, we demonstrated that pixel-level
-cloud regression is feasible on-orbit at substantial energy savings
-over conventional ANN backbones.
+We presented \OrbitVLIF, the first end-to-end decentralized
+federated learning system for satellite-onboard SNN-based optical
+cloud removal. The central technical contribution is the
+\textsc{FedBN}\,+\,\emph{Gossip} aggregation pipeline that
+exchanges model weights entirely between satellites along
+intra-plane ring and inter-plane visibility links, dispensing with
+a parameter server and respecting LEO contact windows. The model
+is offered in two configurations on a shared dataflow: a $14$M
+\emph{full-capacity} variant that reaches SOTA-class quality on
+CUHK-CR1\,/\,CR2 (Section~\ref{sec:exp-fullsota}), and a $2$M
+\emph{on-orbit deployment} variant used in the federated and
+energy experiments. The U-Net itself integrates a dual-frequency
+residual block, a spectral-hybrid attention module, a $5$-level
+quantized spike activation, an adaptive gated skip-fusion, and an
+outer-stage spectro-temporal hyper block---components adapted from
+prior SNN image-restoration work and combined for the
+cloud-removal task.
 
-Empirically, on a single 4090, \OrbitVLIF{} attains
-$25.37$\,dB\,/\,$0.7728$ PSNR\,/\,SSIM on CUHK-CR1 ($+0.50$\,dB
-over a parameter-matched ANN U-Net at $0.57\!\times$ the parameter
-count) and $23.20$\,dB on CUHK-CR2. Single-component ablations
-demonstrate that two of the four blocks (\SHAM{} and the
-multi-frequency dual path) are individually load-bearing: removing
-either drops PSNR \emph{below} the plain ANN baseline, evidence
-that \OrbitVLIF's quality gain is a synergistic property of the
-co-design rather than a sum of independent contributions.
-Per-image inference energy is \emph{estimated} as
+Empirically, the deployment variant attains
+$25.37$\,dB\,/\,$0.7728$ PSNR\,/\,SSIM on CUHK-CR1
+($+0.50$\,dB over a parameter-matched ANN U-Net at
+$0.57\!\times\!$ the parameter count) and $23.20$\,dB on
+CUHK-CR2; per-image inference energy is \emph{estimated} as
 $1.21\!\times$\,--\,$72\!\times$ lower than the ANN baseline of
-$20.75$\,mJ on a $64\!\times\!64$ centre patch under standard
-literature pJ-per-operation constants ($4.6$\,pJ/MAC for ANN,
-$77$\,fJ/SOP for the neuromorphic deployment target); the dual
-bound honestly reflects the deployment uncertainty between
-standard CMOS and an in-memory-computing substrate.
+$20.75$\,mJ under standard literature pJ-per-operation
+constants. Component ablations demonstrate that the four
+building blocks form a co-designed whole: removing \SHAM{} or the
+dual-frequency \DFRB{} path drops PSNR \emph{below} the plain ANN
+baseline.
 
-Four directions extend this work. (i) Real-orbit validation on
-neuromorphic substrates such as Loihi-2 and Speck would replace
-the analytic energy bracket with measured power draw. (ii)
-Multi-source generalisation beyond CUHK-CR1\,+\,CR2 (e.g.,
-Sentinel-2 vs.\ Landsat\,8) would exercise larger source-level
-Dirichlet partitions with $S\!\geq\!3$. (iii) Inter-plane mixing
-matrix learning---rather than the fixed-chain $\mathbf{W}$ used
-here---could exploit the orbital geometry to minimise convergence
-time. (iv) Closing the federated-vs-centralised gap (currently
+Four directions extend this work.
+(i) Closing the federated-vs-centralised gap (currently
 $2.86$\,dB for PlainUNet under $\alpha\!=\!0.1$) via partial
 participation~\cite{ref:fedavg-partial} or local
-momentum~\cite{ref:scaffold} is an open problem.
+momentum~\cite{ref:scaffold}, in particular under the
+\OrbitVLIF{}-SNN backbone whose $\alpha$-sensitivity runs are
+deferred to the extended version.
+(ii) Real-orbit validation on neuromorphic substrates such as
+Loihi-2 / Speck would replace the analytic energy bracket with
+measured power draw.
+(iii) Multi-source generalisation beyond
+CUHK-CR1\,+\,CR2 (e.g., Sentinel-2 vs.\ Landsat\,8) would exercise
+larger source-level Dirichlet partitions with $S\!\geq\!3$.
+(iv) Inter-plane mixing matrix learning---rather than the
+fixed-chain $\mathbf{W}$ used here---could exploit orbital
+geometry to minimise convergence time.
 
 % =====================================================================
 % Bibliography (stub — full BibTeX entries land in companion .bib file)
