@@ -1408,24 +1408,26 @@ def fig9_per_layer_spike_rate(args, out_dir: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Block 7D — Fig 10 (per-layer ANN vs SNN paired energy bars, FLSNN Fig 8b)
+# Block 7D — Fig 10 (MAC-weighted spike-rate r histogram)
 # ---------------------------------------------------------------------------
 
-def fig10_per_layer_energy_paired(args, out_dir: Path) -> None:
-    """Per-layer ANN vs SNN energy paired bar chart, FLSNN Fig 8b style.
+def fig10_spike_rate_histogram(args, out_dir: Path) -> None:
+    """MAC-weighted spike-rate (r_ℓ) histogram.
 
-    For each instrumented Conv2d / Linear layer, draw two adjacent bars:
+    For each instrumented Conv2d layer, bins its MAC count by the
+    per-layer input non-zero rate r_ℓ ∈ [0, 1) into 10 equal-width bins.
+    Bar height = fraction of total network MACs falling in that bin, so
+    the distribution shows how *compute-heavy* each sparsity regime is.
 
-        ANN (orange) = mac_per_image × ann_pj_per_mac (4.6 pJ default)
-        SNN (blue)   = effective_nz_mac × ac_pj_per_op (0.077 pJ/SOP default,
-                                                         neuromorphic substrate)
+    Key narrative: the leftmost low-r bins (sparse regime) contain the
+    bulk of the network's MACs, meaning most compute is already gated by
+    spiking sparsity — directly supporting the energy efficiency claim.
 
-    Each bar is annotated with its numeric energy value (μJ unit chosen
-    for readability).  Layers ordered by ANN energy descending and only
-    the top ``--energy_topk`` (default 12) shown to keep the figure
-    compact at 6-page conference width.
+    Secondary annotation (bar top): number of layers in the bin.
+    Text box (upper right): total ANN / SNN_lower ratio from the
+    top-level energy_summary.json figures.
 
-    Output: ``out_dir/fig10_per_layer_energy_paired.pdf``.
+    Output: ``out_dir/fig10_spike_rate_histogram.pdf``.
     """
     _setup_mpl()
     import matplotlib.pyplot as plt
@@ -1433,79 +1435,72 @@ def fig10_per_layer_energy_paired(args, out_dir: Path) -> None:
     rows = _energy_per_layer_summary(Path(args.energy_dir))
     if rows is None:
         return
-
-    s = load_energy_summary(Path(args.energy_dir))  # for pj constants
-    if s is None:
-        return
-    ann_pj = float(s.get("config", {}).get("ann_pj_per_mac", 4.6) or 4.6)
-    ac_pj  = float(s.get("config", {}).get("ac_pj_per_op",   0.077) or 0.077)
-
-    # Convert energy to μJ for readable annotations (1 μJ = 1e6 pJ).
-    # Three bars per layer: ANN baseline + SNN dual bound (upper +
-    # lower).  SNN_upper uses the ANN MAC formula scaled by r_l (no
-    # neuromorphic acceleration); SNN_lower uses the SOP cost scaled
-    # by r_l (full neuromorphic deployment).
-    for r in rows:
-        r["e_ann_uj"]       = r["mac"]        * ann_pj / 1e6
-        r["e_snn_upper_uj"] = r["eff_nz_mac"] * ann_pj / 1e6
-        r["e_snn_lower_uj"] = r["eff_nz_mac"] * ac_pj  / 1e6
-
-    # Filter to top-K by ANN energy.
-    rows = [r for r in rows if r["e_ann_uj"] > 0]
+    rows = [r for r in rows if r["mac"] > 0]
     if not rows:
-        _warn("Fig 10: no positive-energy layers; skipping")
+        _warn("Fig 10: no MAC entries; skipping")
         return
-    topk = max(1, getattr(args, "energy_topk", 12))
-    rows = rows[:topk]
 
-    n = len(rows)
-    bar_w = 0.27
-    width = max(7.2, 0.65 * n)
-    fig, ax = plt.subplots(figsize=(width, 3.4))
-    x = np.arange(n)
+    total_mac = sum(r["mac"] for r in rows)
 
-    e_ann      = [r["e_ann_uj"]       for r in rows]
-    e_snn_up   = [r["e_snn_upper_uj"] for r in rows]
-    e_snn_low  = [r["e_snn_lower_uj"] for r in rows]
+    # 10 equal-width bins over [0, 1)
+    n_bins = 10
+    bin_mac:   List[float] = [0.0] * n_bins
+    bin_count: List[int]   = [0]   * n_bins
+    for r in rows:
+        rate = min(float(r["input_nonzero_rate"]), 0.9999)  # clamp 1.0 into last bin
+        b = max(0, min(n_bins - 1, int(rate * n_bins)))
+        bin_mac[b]   += r["mac"]
+        bin_count[b] += 1
 
-    b_ann = ax.bar(x - bar_w, e_ann, bar_w, color=PALETTE_ORANGE,
-                   edgecolor="black", linewidth=0.4,
-                   label=f"ANN ({ann_pj:.1f} pJ/MAC)")
-    b_up  = ax.bar(x,         e_snn_up, bar_w, color=PALETTE_BLUE,
-                   edgecolor=PALETTE_BLUE, linewidth=0.4,
-                   facecolor="white", hatch="///",
-                   label=f"SNN upper ({ann_pj:.1f} pJ/MAC × $r_\\ell$)")
-    b_low = ax.bar(x + bar_w, e_snn_low, bar_w, color=PALETTE_BLUE,
-                   edgecolor="black", linewidth=0.4,
-                   label=f"SNN lower ({ac_pj*1000:.0f} fJ/SOP × $r_\\ell$)")
+    fracs = [m / total_mac for m in bin_mac]
 
-    # Numerical labels (μJ, 2 dp)
-    for xi, va, vu, vl in zip(x, e_ann, e_snn_up, e_snn_low):
-        ax.text(xi - bar_w, va, f"{va:.2f}",
-                ha="center", va="bottom", fontsize=5.5,
-                color=PALETTE_ORANGE, fontweight="bold")
-        ax.text(xi,         vu, f"{vu:.2f}",
-                ha="center", va="bottom", fontsize=5.5,
-                color=PALETTE_BLUE, fontweight="bold")
-        ax.text(xi + bar_w, vl, f"{vl:.3f}",
-                ha="center", va="bottom", fontsize=5.5,
-                color=PALETTE_BLUE, fontweight="bold")
+    bin_labels = [f"[{i/10:.1f}, {(i+1)/10:.1f})" for i in range(n_bins)]
+    bin_labels[-1] = "[0.9, 1.0]"
+
+    fig, ax = plt.subplots(figsize=(5.5, 3.4))
+    x = np.arange(n_bins)
+    ax.bar(x, fracs, color=PALETTE_BLUE, edgecolor="black", linewidth=0.5,
+           width=0.72, zorder=3)
+
+    ymax = max(fracs) if any(f > 0 for f in fracs) else 0.1
+    for xi, frac, cnt in zip(x, fracs, bin_count):
+        if cnt == 0:
+            continue
+        ax.text(xi, frac + ymax * 0.025, f"n={cnt}",
+                ha="center", va="bottom", fontsize=6.5,
+                color="#333333", fontweight="bold")
 
     ax.set_xticks(x)
-    ax.set_xticklabels([_short_layer_name(r["name"]) for r in rows],
-                       rotation=70, ha="right", fontsize=6.5)
-    ax.set_ylabel(r"Energy per layer ($\mu$J)")
-    ax.legend(loc="upper right", frameon=False, fontsize=7.5, ncol=1)
-    ax.grid(True, axis="y", alpha=0.3, linewidth=0.4)
+    ax.set_xticklabels(bin_labels, rotation=30, ha="right", fontsize=7.5)
+    ax.set_xlabel(r"Spike rate  $r_\ell$ = (non-zero inputs) / (total inputs)",
+                  fontsize=8)
+    ax.set_ylabel("Fraction of total MACs", fontsize=8)
+    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v*100:.0f}%"))
+    ax.set_ylim(0, ymax * 1.35)
+    ax.grid(True, axis="y", alpha=0.3, linewidth=0.4, zorder=0)
     ax.set_axisbelow(True)
-    cur_lo, cur_hi = ax.get_ylim()
-    ax.set_ylim(0, cur_hi * 1.18)
-    ax.set_title(
-        f"Per-layer energy: ANN vs SNN dual bound (top-{n} by ANN)",
-        fontsize=9)
+    ax.set_title("MAC-weighted spike-rate distribution  (VLIFNet-SNN, CR1)",
+                 fontsize=9)
 
-    fig.tight_layout(pad=0.3)
-    _save_pdf(fig, out_dir / "fig10_per_layer_energy_paired.pdf")
+    # Annotate ANN / SNN_lower ratio from top-level summary
+    s = load_energy_summary(Path(args.energy_dir))
+    if s is not None:
+        bounds = s.get("energy_per_image") or {}
+        ann_pj_val = float(bounds.get("energy_ann_pj",       0.0) or 0.0)
+        snn_lo_val = float(bounds.get("energy_snn_lower_pj", 0.0) or 0.0)
+        if ann_pj_val > 0 and snn_lo_val > 0:
+            ratio = ann_pj_val / snn_lo_val
+            ax.text(0.97, 0.96,
+                    f"Total energy ratio\n"
+                    f"ANN / SNN$_{{lower}}$\n"
+                    rf"$\approx${ratio:.0f}$\times$",
+                    transform=ax.transAxes,
+                    ha="right", va="top", fontsize=7.5,
+                    bbox=dict(boxstyle="round,pad=0.3", fc="lightyellow",
+                              ec="#aaaaaa", lw=0.7))
+
+    fig.tight_layout(pad=0.4)
+    _save_pdf(fig, out_dir / "fig10_spike_rate_histogram.pdf")
     plt.close(fig)
 
 
@@ -1763,7 +1758,7 @@ _FIG_REGISTRY = {
     6:  ("fig6_energy_bars",             "fig6_energy_bars.pdf"),
     7:  ("fig7_centralized_4panel",      "fig7_centralized_4panel.pdf"),
     9:  ("fig9_per_layer_spike_rate",    "fig9_per_layer_spike_rate.pdf"),
-    10: ("fig10_per_layer_energy_paired","fig10_per_layer_energy_paired.pdf"),
+    10: ("fig10_spike_rate_histogram",    "fig10_spike_rate_histogram.pdf"),
 }
 
 
@@ -1785,7 +1780,7 @@ def main(argv=None) -> None:
         6:  fig6_energy_bars,
         7:  fig7_centralized_4panel,
         9:  fig9_per_layer_spike_rate,
-        10: fig10_per_layer_energy_paired,
+        10: fig10_spike_rate_histogram,
     }
 
     produced: List[str] = []
