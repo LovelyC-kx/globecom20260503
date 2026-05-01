@@ -214,7 +214,7 @@ def _panel_architecture(ax):
 
     ax.text(0.22, 5.30,
             r"(a) OrbitVLIF — single-satellite pipeline  "
-            r"($T{=}4$ steps, 2.84 M params)",
+            r"($T{=}4$ steps, 2.30 M params)",
             ha="left", va="center",
             fontsize=8.0, fontweight="bold", color="black")
 
@@ -637,7 +637,8 @@ def _panel_module_sham(ax, x0, y0, w, h):
     cx0     = x0+0.42
     dx, nc  = 0.16, 4
 
-    ax.text(x0+0.10, y_t_in+0.12, "TAA (temporal amp.)",
+    ax.text(cx0+1.5*dx, y_t_in+0.10, "TAA (temporal amp.)",
+            ha="center", va="bottom",
             fontsize=4.6, fontstyle="italic", color=darken(C_GRAY,0.10))
     for t in range(nc):
         tensor_3d(ax, cx0+t*dx, y_t_in, 0.10, 0.10, 0.05, C_BLUE, zorder=2)
