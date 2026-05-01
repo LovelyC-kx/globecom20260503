@@ -200,13 +200,15 @@ nodes~\cite{ref:walker1984,ref:flsnn}. Intra-plane ISLs are
 quasi-continuous, and inter-plane links open only at polar
 encounters, which we model as a length-$N$ chain.
 
-\textbf{Local data and global objective.} Each satellite $s_{i,k}$
-holds a local dataset $\mathcal{D}_{i,k}$ of paired cloudy/clear
-tiles and trains without uploading raw observations. With
-$g_x$ denoting \OrbitALIF{} parameterized by
-$x\!\in\!\mathbb{R}^d$ and $\ell$ the per-pixel restoration loss
-defined in Section~\ref{sec:framework-loss}, the decentralized
-objective is
+\textbf{Local data and global objective.} Index plane by
+$i\!\in\!\{1,\dots,N\}$ and satellite-within-plane by
+$k\!\in\!\{1,\dots,K\}$. Each satellite $s_{i,k}$ holds a local
+dataset $\mathcal{D}_{i,k}$ of paired cloudy/clear tiles
+$(c,y)$, where $c$ is the cloudy input and $y$ the clear ground
+truth. \OrbitALIF{} is denoted $g_x$ and parameterized by
+$x\!\in\!\mathbb{R}^d$ ($d$ is the number of trainable scalars).
+With $\ell$ the per-pixel restoration loss defined in
+Section~\ref{sec:framework-loss}, the decentralized objective is
 \begin{equation}
 \min_{x \in \mathbb{R}^d}\;
 f(x)
@@ -217,7 +219,7 @@ f(x)
 \ell\!\left(g_x(c),y\right),
 \label{eq:globalobj}
 \end{equation}
-which is the cross-silo objective~\cite{ref:fedavg} restricted to
+the standard cross-silo objective~\cite{ref:fedavg} restricted to
 exchanges along the constellation graph.
 
 \textbf{Source-level heterogeneity.} Different orbits see different
@@ -233,27 +235,38 @@ reports $\alpha\!=\!0.01$ as a stress test.
 \subsection{Decentralized Training Protocol}\label{sec:sysmodel-procedure}
 
 Training runs for $R\!=\!200$ rounds. Each round has four steps.
-(S1)~Each satellite takes $E\!=\!2$ local AdamW steps. (S2)~Each
-plane $i$ runs exact ring-AllReduce on its $K$ members,
+Let $r\!\in\!\{1,\dots,R\}$ index the round and $\mathcal{K}_i$
+denote the set of satellites in plane $i$.
+(S1)~Each satellite takes $E\!=\!2$ local AdamW steps and produces
+$x_{i,k}^{(r,E)}$, the weights of satellite $(i,k)$ after $E$
+steps in round $r$. (S2)~Each plane $i$ runs exact ring-AllReduce
+on its members,
 \begin{equation}
 x_i^{(r+\frac{1}{2})}
 \;=\;
 \frac{1}{K}\sum_{k \in \mathcal{K}_i} x_{i,k}^{(r,E)},
 \label{eq:intraplane}
 \end{equation}
-after which every plane is one logical node. (S3)~Adjacent planes
-exchange a single Gossip step under the standard Metropolis
-matrix~\cite{ref:gossip-boyd},
+where the superscript $r\!+\!\tfrac{1}{2}$ marks a half-step
+between rounds. After (S2) every satellite in a plane carries
+identical non-BN weights, so the inter-plane stage treats each
+plane as one logical node. (S3)~Adjacent planes exchange a single
+Gossip step. With $\mathcal{J}(i)$ the set of plane indices
+adjacent to $i$ on the chain (including $i$ itself), and $W$ the
+$N\!\times\!N$ Metropolis mixing matrix~\cite{ref:gossip-boyd},
 \begin{equation}
 x_i^{(r+1)}
 \;=\;
-\sum_{j \in \mathcal{N}} W_{ij}\, x_j^{(r+\frac{1}{2})},
+\sum_{j \in \mathcal{J}(i)} W_{ij}\, x_j^{(r+\frac{1}{2})}.
 \label{eq:gossip}
 \end{equation}
-with $W_{ij}\!=\!1/(\max(d_i,d_j)\!+\!1)$ on adjacent edges and
-self-weights $\{\tfrac{2}{3},\tfrac{1}{3},\tfrac{1}{3},\tfrac{1}{3},\tfrac{2}{3}\}$
-on the $N\!=\!5$ chain. (S4)~Plane $i$ broadcasts $x_i^{(r+1)}$ to
-its members.
+The off-diagonals are $W_{ij}\!=\!1/(\max(d_i,d_j)\!+\!1)$ for
+adjacent $i,j$, where $d_i$ is the chain-degree (number of
+neighbours) of plane $i$, and the diagonal is
+$W_{ii}\!=\!1\!-\!\sum_{j\sim i} W_{ij}$. The $N\!=\!5$ chain has
+off-diagonals $\tfrac{1}{3}$ and self-weights
+$\{\tfrac{2}{3},\tfrac{1}{3},\tfrac{1}{3},\tfrac{1}{3},\tfrac{2}{3}\}$.
+(S4)~Plane $i$ broadcasts $x_i^{(r+1)}$ to its members.
 
 \textbf{FedBN-on-SNN.} (S2) and (S3) mix only \emph{shared}
 parameters. Every BN-tagged tensor stays local~\cite{ref:fedbn},
@@ -305,8 +318,9 @@ first, and inter-branch coupling opens gradually during training.
 
 The backbone follows a three-level U-shaped encoder--decoder.
 Given a cloudy RGB tile
-$\mathbf{c}\!\in\!\mathbb{R}^{3\times H\times W}$, it predicts the
-cloud-free image as a global residual,
+$\mathbf{c}\!\in\!\mathbb{R}^{3\times H\times W}$ ($H,W$ height and
+width in pixels), it predicts the cloud-free image
+$\hat{\mathbf{y}}$ as a global residual,
 \begin{equation}
 \hat{\mathbf{y}}
 \;=\;
@@ -314,8 +328,10 @@ cloud-free image as a global residual,
 \mathrm{Conv}\!\left(\overline{\mathrm{Net}(\mathbf{c})}^{(T)}\right),
 \label{eq:globalresidual}
 \end{equation}
-where $T\!=\!4$ is the spike time horizon and
-$\overline{(\cdot)}^{(T)}$ averages over time. The onboard variant
+where $\mathrm{Net}$ is the spiking U-Net body, $T\!=\!4$ is the
+number of spike time steps, $\overline{(\cdot)}^{(T)}$ denotes
+averaging over those $T$ steps, and $\mathrm{Conv}$ is a
+$3\!\times\!3$ output convolution that maps to $3$ RGB channels. The onboard variant
 uses base channel width $C\!=\!24$ and has approximately
 $2.30$\,M parameters. Figure~\ref{fig:overview} shows the system
 overview, and Table~\ref{tab:contribution} summarizes which
@@ -377,16 +393,19 @@ strict event-driven sparsity. We need a neuron whose output is
 sparse enough to skip zero-valued operands and expressive enough
 to carry an amplitude when it fires.
 
-The five-level quantized spike (5QS) clamps the membrane potential
-$u_t$ of a soft-reset LIF neuron to $[0,4]$, rounds, and normalizes
-by four,
+Let $t\!\in\!\{1,\dots,T\}$ be the spike time step,
+$u_t\!\in\!\mathbb{R}$ the membrane potential at step $t$, and
+$o_t$ the resulting spike output. The five-level quantized spike
+(5QS) clamps $u_t$ to $[0,4]$, rounds to the nearest integer, and
+divides by four,
 \begin{equation}
 o_t \;=\; \frac{\mathrm{round}(\mathrm{clamp}(u_t,0,4))}{4}\;\in\;
-\Big\{0,\,\tfrac{1}{4},\,\tfrac{1}{2},\,\tfrac{3}{4},\,1\Big\}.
+\Big\{0,\,\tfrac{1}{4},\,\tfrac{1}{2},\,\tfrac{3}{4},\,1\Big\},
 \label{eq:5qs-forward}
 \end{equation}
-The leak rate is $\tau\!=\!0.25$ and the previous spike is
-subtracted before the leak. Synaptic operations fire only when
+giving five admissible levels per step. The membrane evolves as a
+soft-reset LIF with leak rate $\tau\!=\!0.25$ where the previous
+spike is subtracted before the leak. Synaptic operations fire only when
 $o_t\!>\!0$, preserving event-driven sparsity while the four
 non-zero levels carry two bits per step instead of one. Training
 uses a straight-through surrogate that passes the upstream gradient
@@ -404,20 +423,23 @@ weights every band uniformly. We therefore instantiate P1 at the
 block scale with two complementary decompositions: \DFRB{} in the
 pixel-value/spatial domain and \SHAM{} in the time/frequency domain.
 
-\textbf{Dual-Frequency Residual Block (\DFRB{}).} \DFRB{} routes
-its input through two cascaded groups. Group~1 thresholds
-$\mathbf{X}$ in the value domain via a 5QS-LIF neuron, splitting
-it into a high-component $\mathbf{X}_h$ and a low-component
+\textbf{Dual-Frequency Residual Block (\DFRB{}).} Let
+$\mathbf{X}$ be the block input feature tensor and $\odot$
+elementwise multiplication. \DFRB{} routes $\mathbf{X}$ through
+two cascaded groups. Group~1 applies a 5QS-LIF neuron in the
+value domain, splitting $\mathbf{X}$ into a high-component
+$\mathbf{X}_h$ (LIF output) and a low-component
 $\mathbf{X}_l\!=\!\mathbf{X}\!-\!\mathbf{X}_h$. The two are
-recombined with learnable scales and a multiplicative high-region
-gate $\mathbf{X}\!\odot\!\mathbf{X}_h$, then convolved and passed
-through TDBN. Group~2 applies the same template in the spatial-block
-domain through a $2\!\times$ PixelShuffle-LIF, yielding
-$\mathbf{Z}_{2h}$. A cross-scale gate $\sigma(g)$ with $g$
-initialized at zero couples the two groups via the term
-$\sigma(g)\,\mathbf{X}_h\!\odot\!\mathbf{Z}_{2h}$, instantiating P3.
-The block closes with a shortcut $\mathrm{Conv}(\mathbf{X})$ and a
-\SHAM{} tail.
+recombined with learnable scalar weights and the high-region
+multiplicative gate $\mathbf{X}\!\odot\!\mathbf{X}_h$, then
+convolved and passed through TDBN. Group~2 applies the same
+template in the spatial-block domain through a $2\!\times$
+PixelShuffle-LIF, yielding $\mathbf{Z}_{2h}$. A learnable scalar
+gate $g$, initialized at zero so that the sigmoid $\sigma(g)$
+starts at $0.5$ and the cross-group product
+$\sigma(g)\,\mathbf{X}_h\!\odot\!\mathbf{Z}_{2h}$ is initially
+small, couples the two groups (instantiating P3). The block closes
+with a shortcut $\mathrm{Conv}(\mathbf{X})$ and a \SHAM{} tail.
 
 \textbf{Spectral-Spatial Hybrid Attention (\SHAM{}).} Following the
 FSTA-SNN attention design~\cite{ref:fstasnn2025}, \SHAM{} re-weights
@@ -441,36 +463,47 @@ thick cloud, and a stack of $3\!\times\!3$ convolutions cannot
 deliver the global receptive field that the highest-resolution
 level needs to hallucinate occluded surface from distant context.
 
-\textbf{Adaptive Gated Fusion (\AGFM{}).} \AGFM{} produces a
-per-pixel per-channel gate $\boldsymbol{\gamma}\!=\!\sigma(\mathrm{Conv}_{1\times 1}([\mathbf{d},\mathbf{e}]))$
-from the decoder feature $\mathbf{d}$ and the encoder skip
-$\mathbf{e}$, then fuses them as
-$\boldsymbol{\gamma}\!\odot\!\mathbf{d}+(1-\boldsymbol{\gamma})\!\odot\!\mathbf{e}$
-and routes the result through a 5QS-LIF activation and TDBN.
-The pre-sigmoid logits start at zero, so $\boldsymbol{\gamma}$
-begins at $0.5$ and progressively differentiates, instantiating
-P3. \AGFM{} sits at the first two multi-scale levels; the deepest
-level uses a direct encoder--decoder connection.
+\textbf{Adaptive Gated Fusion (\AGFM{}).} Let $\mathbf{d}$ be the
+decoder feature and $\mathbf{e}$ the encoder skip at a given
+multi-scale level. \AGFM{} concatenates them along the channel
+axis ($[\mathbf{d},\mathbf{e}]$), passes through a $1\!\times\!1$
+convolution and a sigmoid to produce a per-pixel per-channel gate
+tensor $\boldsymbol{\gamma}\!=\!\sigma(\mathrm{Conv}_{1\times 1}([\mathbf{d},\mathbf{e}]))$,
+fuses by
+$\boldsymbol{\gamma}\!\odot\!\mathbf{d}+(\mathbf{1}-\boldsymbol{\gamma})\!\odot\!\mathbf{e}$,
+and routes the result through a 5QS-LIF activation and TDBN. The
+$\mathrm{Conv}_{1\times 1}$ logits start at zero so that
+$\boldsymbol{\gamma}$ begins at $\tfrac{1}{2}$ at every entry and
+progressively differentiates, instantiating P3. \AGFM{} sits at
+the first two multi-scale levels. The deepest level uses a direct
+encoder--decoder connection.
 
 \textbf{Spectro-Temporal Spike Hyper-Block (\SSHB{}).} \SSHB{} is
-the top-level block. It first applies \DFRB{}, then expands the
-time axis from $T$ to $Tr^2\!=\!16$ via a $2\!\times$
-PixelUnshuffle so that LIF temporal memory bridges spatial
-neighbours, applies a temporal-channel attention over the expanded
-steps, and compresses back to $T$ steps with a Conv3D. A second
-\DFRB{} skip-add and a FreqMLP (FSE) close the block; FSE is
-adapted from the frequency-domain MLP of
-DarkIR~\cite{ref:darkir2024} with magnitude scale $\gamma_F$
-initialized at zero (P2) and provides a global receptive field at
-$O(N\log N)$ cost. The PixelUnshuffle / Compress pair is the
-network-scale instance of P1: the signal decomposes into a longer
-spike-temporal sequence, is processed there, and recombines back
-to the spatial domain.
+the top-level block. With $r$ the PixelUnshuffle downsampling
+factor (we set $r\!=\!2$), it first applies \DFRB{}, then expands
+the time axis from $T$ to $Tr^2\!=\!16$ via a PixelUnshuffle so
+that LIF temporal memory bridges spatial neighbours, applies a
+temporal-channel attention over the expanded steps, and compresses
+back to $T$ steps with a Conv3D. A second \DFRB{} skip-add and a
+FreqMLP (FSE) close the block. FSE is adapted from the
+frequency-domain MLP of DarkIR~\cite{ref:darkir2024} with
+magnitude scale $\gamma_F$ initialized at zero (P2). It runs in
+$O(M \log M)$ time where $M\!=\!HW$ is the number of pixels per
+feature map, smaller than the $O(M^2)$ cost of a direct non-local
+block. The PixelUnshuffle / Compress pair is the network-scale
+instance of P1: the signal decomposes into a longer spike-temporal
+sequence, is processed there, and recombines back to the spatial
+domain.
 
 \subsection{Training Objective and Protocol Interface}
 \label{sec:framework-loss}
 
-\OrbitALIF{} is trained with a composite Charbonnier and SSIM loss,
+Let $\Omega$ be the set of pixel positions in a tile, $|\Omega|$
+its cardinality, and $p\!\in\!\Omega$ a pixel index, with
+$\hat{\mathbf{y}}_p$ and $\mathbf{y}_p$ the predicted and ground
+truth RGB values at pixel $p$. \OrbitALIF{} is trained with a
+composite Charbonnier and Structural Similarity Index Measure
+(SSIM) loss,
 \begin{equation}
 \ell(\hat{\mathbf{y}},\mathbf{y})
 =
@@ -479,11 +512,11 @@ to the spatial domain.
 +\lambda\bigl(1-\mathrm{SSIM}(\hat{\mathbf{y}},\mathbf{y})\bigr),
 \label{eq:loss}
 \end{equation}
-with $\varepsilon\!=\!10^{-3}$ and $\lambda\!=\!0.1$. The
-Charbonnier term handles cloud-occlusion outliers more robustly
-than $L^2$, and the SSIM term preserves cloud-boundary sharpness
-and structural consistency that pixelwise losses tend to
-oversmooth.
+with smoothing constant $\varepsilon\!=\!10^{-3}$ and SSIM weight
+$\lambda\!=\!0.1$. The Charbonnier term handles cloud-occlusion
+outliers more robustly than the squared-error $L^2$, and the SSIM
+term preserves cloud-boundary sharpness that pixelwise losses tend
+to oversmooth.
 
 \textbf{Protocol interface.} The same backbone is trained both
 centrally (Section~\ref{sec:exp-centralized}) and federatedly
@@ -530,16 +563,18 @@ rounds of $E\!=\!2$ local steps under Dirichlet
 $\alpha\!=\!0.1$. We report PSNR, SSIM, cumulative inter-plane
 communication in MB, and wall time.
 
-\textbf{Energy measurement.} A forward hook on every
-\texttt{Conv2d} and \texttt{Linear} records the per-call MAC count
-and input non-zero rate $r_\ell$, accumulated over $32$ CUHK-CR1
-test patches at $64\!\times\!64$. Two per-operation constants are
-taken from the literature: $4.6$\,pJ/MAC for the ANN baseline
-(Horowitz, $45$\,nm CMOS~\cite{ref:horowitz2014}) and $77$\,fJ/SOP
-for SNN deployment on neuromorphic substrates such as
-Loihi-2~\cite{ref:loihi}, the value adopted by
-FLSNN~\cite{ref:flsnn} and ESDNet~\cite{ref:esdnet}. Per-image SNN
-energy is $\sum_\ell \mathrm{MAC}_\ell\,r_\ell\,e_{\rm op}$.
+\textbf{Energy measurement.} Index trainable layers by $\ell$. A
+forward hook on every \texttt{Conv2d} and \texttt{Linear} records
+the per-call MAC count $\mathrm{MAC}_\ell$ and the input non-zero
+rate $r_\ell\!=\!\Pr[\mathbf{x}_\ell\!\neq\!0]$, accumulated over
+$32$ CUHK-CR1 test patches at $64\!\times\!64$. Two per-operation
+energy constants $e_{\rm op}$ are taken from the literature:
+$4.6$\,pJ/MAC for the ANN baseline (Horowitz, $45$\,nm
+CMOS~\cite{ref:horowitz2014}) and $77$\,fJ/SOP for SNN deployment
+on neuromorphic substrates such as Loihi-2~\cite{ref:loihi}, the
+value adopted by FLSNN~\cite{ref:flsnn} and
+ESDNet~\cite{ref:esdnet}. Per-image SNN energy is
+$\sum_\ell \mathrm{MAC}_\ell\,r_\ell\,e_{\rm op}$.
 
 \subsection{Per-Image Inference Energy}\label{sec:exp-energy}
 
@@ -572,9 +607,10 @@ consumes $20.75$\,mJ over the $4.51$\,GMAC inference.
 \OrbitALIF{} consumes $0.287$\,mJ in the lower bound (Loihi-2,
 Speck, Akida class substrates), a $72.3\!\times\!$ reduction, and
 $17.14$\,mJ in the upper bound (general-purpose CMOS without
-neuromorphic acceleration), a $1.21\!\times\!$ reduction. Across
-CR1 and CR2 the measured non-zero MAC ratios are
-$\bar{r}_{\rm CR1}\!=\!0.826$ and $\bar{r}_{\rm CR2}\!=\!0.823$,
+neuromorphic acceleration), a $1.21\!\times\!$ reduction. The MAC-weighted average non-zero rate
+$\bar{r}\!=\!\sum_\ell \mathrm{MAC}_\ell\,r_\ell / \sum_\ell \mathrm{MAC}_\ell$
+is $\bar{r}_{\rm CR1}\!=\!0.826$ and
+$\bar{r}_{\rm CR2}\!=\!0.823$ on the two splits respectively,
 indistinguishable at two decimal places. Per-layer hooks on LIF
 and \FQS{} modules show $20$\,--\,$70\,\%$ non-zero activation,
 with \FQS{} layers higher because four of five quantization levels
