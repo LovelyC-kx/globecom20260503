@@ -8,12 +8,15 @@
 %
 % Module naming (deliberately distinct from prior literature):
 %   OrbitVLIF                                       (was: VLIFNet)
-%   MFRB  = Multi-Frequency Residual Block          (was: SRB)
+%   DFRB  = Dual-Frequency Residual Block           (was: SRB / MFRB)
+%   SSHB  = Spectro-temporal Spike Hyper-Block      (was: SUNet_Level1_Block / DSP)
 %   SHAM  = Spectral-Hybrid Attention Module        (was: FSTA)
 %   5QS   = 5-Level Quantized Spike                 (was: MultiSpike-4)
-%   CTM   = Channel-Time Modulation                 (was: MDA)
+%   TCAM  = Temporal-Channel Attention Module       (was: TimeAttention / CTM)
 %   AGFM  = Adaptive Gated Fusion Module            (was: GatedSkipFusion)
-%   DSP   = Deep Spectral Processor                 (was: L1 Block)
+%   FSE   = Frequency Spectral Enhancement MLP      (was: FreMLPBlock)
+%   VLIF  = Variable-state LIF neuron               (mem_update + 5QS)
+%   TCS   = Temporal-Channel-Spatial Attention      (was: MultiDimensionalAttention)
 %
 % Build:
 %   pdflatex paper_orbitvlif.tex
@@ -23,7 +26,7 @@
 %
 % Figures expected under ./figures/:
 %   fig1.pdf                          (TikZ — system overview)
-%   fig2_modules.pdf                  (TikZ — 5QS / MFRB / SHAM zoom-ins)
+%   fig2_modules.pdf                  (TikZ — 5QS / DFRB / SHAM / SSHB zoom-ins)
 %   fig3_centralized_curves.pdf       (Python — A1/A2/C2 PSNR vs ep)
 %   fig4_qualitative_grid.pdf         (Python — 4×4 qualitative)
 %   fig5_ablation_bars.pdf            (Python — A1 vs B1/B2/B3)
@@ -31,7 +34,7 @@
 %   fig7_centralized_4panel.pdf       (Python — Loss + PSNR, CR1+CR2)
 %   fig8_energy_bars.pdf              (Python — ANN/SNN total energy)
 %   fig9_per_layer_spike_rate.pdf     (Python — per-layer firing rate)
-%   fig10_per_layer_energy_paired.pdf (Python — per-layer paired energy)
+%   fig10_spike_rate_histogram.pdf    (Python — MAC-weighted r_ℓ histogram)
 % =============================================================================
 
 \documentclass[conference]{IEEEtran}
@@ -66,12 +69,12 @@
 \newcommand{\D}{\mathcal{D}}
 \newcommand{\Dir}{\mathrm{Dir}}
 \newcommand{\OrbitVLIF}{\textsc{OrbitVLIF}}
-\newcommand{\MFRB}{\textsc{MFRB}}
+\newcommand{\DFRB}{\textsc{DFRB}}
+\newcommand{\SSHB}{\textsc{SSHB}}
 \newcommand{\SHAM}{\textsc{SHAM}}
 \newcommand{\FQS}{\textsc{5QS}}
-\newcommand{\CTM}{\textsc{CTM}}
+\newcommand{\TCAM}{\textsc{TCAM}}
 \newcommand{\AGFM}{\textsc{AGFM}}
-\newcommand{\DSP}{\textsc{DSP}}
 
 % Path for figures
 \graphicspath{{figures/}}
@@ -103,7 +106,7 @@ We present \OrbitVLIF, a brain-inspired decentralized satellite
 learning framework that unifies an energy-efficient spiking U-Net
 for cloud removal with a fully on-orbit federated training pipeline.
 At the model level we design four building blocks: a
-\emph{Multi-Frequency Residual Block} (\MFRB) that decomposes
+\emph{Dual-Frequency Residual Block} (\DFRB) that decomposes
 features into parallel temporal- and spatial-frequency paths
 fused via a cross-scale gate, a \emph{Spectral-Hybrid Attention
 Module} (\SHAM) jointly recalibrating temporal-amplitude and
@@ -118,7 +121,7 @@ On a single 4090, \OrbitVLIF{} attains $25.37$\,dB / $0.7728$
 PSNR/SSIM on CUHK-CR1 ($+0.50$\,dB over a parameter-matched
 ANN U-Net at $0.57\!\times$ the parameter count) and $23.20$\,dB on
 CUHK-CR2.  Ablations attribute $0.60$, $0.52$, and $0.30$\,dB drops
-respectively to removing \SHAM{}, the dual-frequency \MFRB{} path,
+respectively to removing \SHAM{}, the dual-frequency \DFRB{} path,
 and \FQS{}---both single-component ablations falling \emph{below}
 the plain ANN U-Net baseline, evidence that \OrbitVLIF's modules
 form a co-designed whole. Per-image inference energy is
@@ -222,7 +225,7 @@ learning system tailored for on-orbit cloud removal. Our
 \begin{itemize}
 \item \textbf{We propose} a quantized spiking U-Net for cloud
   removal that integrates four novel building blocks: a
-  \emph{Multi-Frequency Residual Block} (\MFRB) decomposing
+  \emph{Dual-Frequency Residual Block} (\DFRB) decomposing
   features into temporal- and spatial-frequency parallel paths
   fused via a cross-scale gate, a \emph{Spectral-Hybrid Attention
   Module} (\SHAM) jointly recalibrating temporal-amplitude and
@@ -426,11 +429,14 @@ weights across $50$ satellites under \textsc{FedBN}\,+\,Gossip.
   \centering
   \includegraphics[width=\textwidth]{fig1.pdf}
   \caption{\OrbitVLIF{} system overview. \textbf{(a)} Single-satellite
-  network: a three-level U-Net with \MFRB{} blocks at each encoder /
-  decoder level, a \DSP{} bottleneck, \SHAM{} attention overlay, and
-  \AGFM{} gated skip connections. \textbf{(b)} Decentralized
-  $5\!\times\!10$ Walker-Star constellation: intra-plane ring
-  AllReduce (green) and inter-plane Gossip (red).}
+  network: a three-level spiking U-Net with one \SSHB{} block at the
+  full-resolution outer level, two/four \DFRB{} blocks at the deeper
+  levels, a direct U-bend at the deepest level (no separate
+  bottleneck), two sequential \SSHB{} blocks at the decoder's
+  full-resolution stage, \SHAM{} attention overlay, and \AGFM{}
+  gated skip connections at the two outer levels. \textbf{(b)}
+  Decentralized $5\!\times\!10$ Walker-Star constellation:
+  intra-plane ring AllReduce (green) and inter-plane Gossip (red).}
   \label{fig:overview}
 \end{figure*}
 
@@ -438,30 +444,44 @@ weights across $50$ satellites under \textsc{FedBN}\,+\,Gossip.
   \centering
   \includegraphics[width=\textwidth]{fig2_modules.pdf}
   \caption{\OrbitVLIF{} building-block zoom-ins. \textbf{(a)} The
-  \FQS{} activation replaces binary spikes (orange dashed) with a
-  $5$-level step function (blue), preserving spike sparsity while
-  quadrupling per-spike dynamic range; the rectangular surrogate
-  window $[0,4]$ with slope $\tfrac14$ enables stable training.
-  \textbf{(b)} The \MFRB{} parallelises a temporal-LIF and a
-  PixelShuffle-LIF spatial path, each with learnable
-  $(\alpha_h,\alpha_l)$ scales, fused by a cross-scale gate
-  $\sigma(g)$. \textbf{(c)} \SHAM{} jointly recalibrates the
-  temporal-amplitude and DCT-spatial dimensions of the feature
-  volume.}
+  \DFRB{} parallelises a temporal-LIF and a PixelShuffle-LIF spatial
+  path, each with learnable $(\alpha_h,\alpha_l)$ scales, fused by a
+  cross-scale gate $\sigma(g)$. \textbf{(b)} The \FQS{} activation
+  replaces binary spikes (orange dashed) with a $5$-level step
+  function (blue), preserving spike sparsity while quadrupling
+  per-spike dynamic range; the rectangular surrogate window $[0,4]$
+  with slope $\tfrac14$ enables stable training. \textbf{(c)}
+  \SHAM{} jointly recalibrates the temporal-amplitude (TA) and
+  DCT-spatial (SA) dimensions of the feature volume. \textbf{(d)}
+  The \SSHB{} expands the time axis $T\!=\!4\!\to\!16$ via
+  PixelUnshuffle, recalibrates with \TCAM{}, compresses back to
+  $T\!=\!4$ with a \texttt{Conv3d}, refines via two spike-conv
+  sub-blocks, and finishes with a residual upsample, a TCS-attention
+  head, and an FFT-domain \emph{frequency-spectral enhancement}
+  (FSE) MLP for global $\mathcal{O}(N\log N)$ spatial mixing.}
   \label{fig:modules}
 \end{figure*}
 
 \subsection{\OrbitVLIF{} Architecture}\label{sec:framework-arch}
 
-\OrbitVLIF{} is built atop a three-level spiking U-Net skeleton.
-The encoder progressively downsamples at $H/2^l$ for $l\in\{0,1,2\}$
-with channel widths $\{C, 2C, 4C\}$ and \MFRB{} block counts
-$\{2, 2, 4\}$; the bottleneck operates at $H/4$ resolution and
-embeds the \DSP{} block, which couples a spatial frequency MLP
-(\textsc{FreMLP}~\cite{ref:darkir}) with a $\FQS$-quantized LIF
-neuron and a multi-dimensional channel-time modulation
-(\CTM); the decoder is symmetric with \MFRB{} block counts
-$\{2,2,2\}$. Skip connections at each level pass through \AGFM{}.
+\OrbitVLIF{} is built atop a three-level spiking U-Net skeleton
+(Fig.~\ref{fig:overview}\,(a)).
+The shallow level $\ell\!=\!0$ keeps the full $H\!\times\!W$
+spatial resolution and uses a single \emph{Spectro-temporal
+Spike Hyper-Block} (\SSHB) at channel width $C$;
+the two deeper levels $\ell\!\in\!\{1,2\}$ downsample to
+$H/2^{\ell}$ via PixelUnshuffle and use \DFRB{} blocks at channel
+widths $\{2C,4C\}$ with block counts $\{2,4\}$.
+There is \emph{no separate bottleneck}: the deepest encoder feature
+($\ell\!=\!2$, $H/4$ resolution, $4C$ channels) flows directly
+into the symmetric decoder through a wide-channel U-bend, and the
+decoder uses \DFRB{} block counts $\{2,2\}$ at the two coarse
+stages followed by \emph{two sequential} \SSHB{} blocks at the
+final $H\!\times\!W$ stage.
+Skip connections at the two outer levels ($\ell\!\in\!\{0,1\}$)
+pass through \AGFM{}; the deepest level has no separate skip
+because the direct U-bend already transmits the full $4C$-channel
+encoder state.
 A global residual is added on the network output:
 \begin{equation}
 \hat{\mathbf{y}} \;=\; \mathbf{c} \;+\;
@@ -511,10 +531,10 @@ $\FQS$ improves PSNR by $0.30$\,dB over the binary-spike ablation
 under matched training.
 
 % =====================================================================
-% Section III-A.2 (MFRB) and III-A.3 (SHAM) land in subsequent commits.
+% Section III-A.2 (DFRB) and III-A.3 (SHAM) land in subsequent commits.
 % =====================================================================
 
-\subsubsection{\MFRB{}: Multi-Frequency Residual Block}\label{sec:framework-mfrb}
+\subsubsection{\DFRB{}: Dual-Frequency Residual Block}\label{sec:framework-dfrb}
 
 \textbf{Problem.}\;\;
 A single LIF non-linearity acts as a temporal high-pass filter:
@@ -531,7 +551,7 @@ Stacking two LIF blocks sequentially doubles the compute cost
 without isolating the two frequency regimes.
 
 \textbf{Our choice.}\;\;
-The \MFRB{} (Fig.~\ref{fig:modules}\,(b)) parallelises a temporal
+The \DFRB{} (Fig.~\ref{fig:modules}\,(a)) parallelises a temporal
 LIF path and a spatial path that operates on a $2\!\times\!$
 PixelShuffle-downsampled representation:
 \begin{align}
@@ -539,7 +559,7 @@ PixelShuffle-downsampled representation:
 \mathbf{x}_l^{(1)} \;=\; \mathbf{x}-\mathbf{x}_h^{(1)}, \\
 \mathbf{x}_h^{(2)} &\;=\; \mathrm{PSLIF}_2\!\big(\mathrm{TDBN}(\mathrm{Conv}_1(\mathbf{x}_h^{(1)},\mathbf{x}_l^{(1)}))\big),\\
 \mathbf{x}_{\mathrm{cross}} &\;=\; \sigma(g)\,\mathbf{x}_h^{(1)}\!\odot\!\mathbf{x}_h^{(2)},
-\label{eq:mfrb-cross}
+\label{eq:dfrb-cross}
 \end{align}
 where $\mathrm{LIF}_1$ uses $\FQS{}$, $\mathrm{PSLIF}_2$ first applies
 PixelShuffle-downsample and then LIF on the rearranged tensor (so
@@ -548,9 +568,9 @@ LIF state), and $\sigma(g)$ is a learnable scalar gate initialised
 to $0$ so that the cross-scale path opens gradually during training.
 The two paths are combined through learnable scales
 $(\alpha_h^{(\ell)},\alpha_l^{(\ell)})\!\in\!\R^2$ for $\ell\!\in\!\{1,2\}$
-and re-merged with a residual shortcut (Fig.~\ref{fig:modules}(b)).
+and re-merged with a residual shortcut (Fig.~\ref{fig:modules}\,(a)).
 \textbf{Improvement.}\;\;
-Removing the spatial path collapses \MFRB{} to a single-LIF block;
+Removing the spatial path collapses \DFRB{} to a single-LIF block;
 in Section~\ref{sec:exp-ablation} this ablation costs $0.52$\,dB
 PSNR.
 
@@ -629,33 +649,48 @@ $\boldsymbol{\gamma}\!\to\!1$ favours the decoder, while at
 clean-pixel locations $\boldsymbol{\gamma}\!\to\!0$ preserves the
 encoder detail.
 
-\subsubsection{\DSP{}: Deep Spectral Processor}\label{sec:framework-dsp}
+\subsubsection{\SSHB{}: Spectro-temporal Spike Hyper-Block}\label{sec:framework-sshb}
 
-The deepest U-Net stage operates at $H/4$ resolution with the
-largest channel width $4C$, accumulating semantic context across
-the receptive field. \textbf{Problem.}\;\;Plain stacked
-convolutions at this stage have only local receptive field; vanilla
-self-attention has $\mathcal{O}\big((HW)^2\big)$ cost incompatible
-with the on-orbit power budget. \textbf{Candidate.}\;\;A
-frequency-domain MLP (\textsc{FreMLP}~\cite{ref:darkir}) achieves
-$\mathcal{O}(N\log N)$ global receptive field via the FFT, but
-lacks the temporal-axis coupling that distinguishes a spiking
-network from a frame-wise ANN. \textbf{Our choice.}\;\;The \DSP{}
-cascades three components:
-\begin{equation}
-\mathrm{DSP}(\mathbf{X}) \;=\;
-\mathrm{CTM}\!\Big(\,\FQS\!\big(\mathrm{TDBN}\!\big(\textsc{FreMLP}(\mathbf{X})\big)\big)\Big),
-\label{eq:dsp}
-\end{equation}
-where the \textsc{FreMLP} provides global spatial mixing, the
-$\FQS$-quantised LIF maintains spike sparsity at the bottleneck
-(the deepest stage typically has the highest firing rate; sparse
-quantisation here yields the largest absolute energy saving), and
-the \emph{Channel-Time Modulation} (\CTM) recalibrates jointly
-along $C$ and $T$ via a $1\!\times\!1$-Conv$\to$ReLU$\to1\!\times\!1$-Conv
-bottleneck operating on the
-$\mathrm{Pool}_{H,W}\big(\mathbf{X}\big)\!\in\!\R^{T\times C}$
-descriptor.
+The shallow level $\ell\!=\!0$ operates at full $H\!\times\!W$
+resolution where the spike tensor still carries fine-grained spatial
+detail and pixel-resolution texture cues critical for cloud
+removal. \textbf{Problem.}\;\;A plain \DFRB{} at this stage
+performs convolution at full resolution but lacks (i) a global
+spatial mixer to align repetitive cloud patterns with the
+underlying scene structure, and (ii) a mechanism to expand the
+short $T\!=\!4$ time axis into a richer temporal context that the
+sparse $\FQS$-quantized LIF (jointly denoted $\mathrm{VLIF}$) can
+exploit. \textbf{Candidate.}\;\;A frequency-domain MLP
+(\textsc{FreMLP}~\cite{ref:darkir}) provides $\mathcal{O}(N\log N)$
+global mixing, but operates only on the spatial axis and ignores
+the temporal one. \textbf{Our choice.}\;\;The \SSHB{} cascades a
+$2\!\times\!$ PixelUnshuffle that trades $H\!\times\!W$ extent for a
+$\times 4$ temporal expansion, a temporal-channel attention head
+$\mathrm{TCAM}$ over the expanded axis, a $\mathrm{Conv3d}$ that
+compresses time back to $T\!=\!4$, two inner spike-conv refinement
+sub-blocks at the reduced resolution, a bilinear upsample plus
+residual to the initial \DFRB{} output, a final
+temporal-channel-spatial attention $\mathrm{TCS}$, and a
+frequency-domain MLP $\mathrm{FSE}$ that supplies the global
+spatial mixing in the FFT magnitude domain. Concretely, with
+$\mathrm{PU}_2$ and $\mathrm{Up}_2$ denoting the
+PixelUnshuffle\,/\,bilinear-upsample pair,
+\begin{align}
+\mathbf{X}_T &\;=\; \mathrm{Conv3d}\!\Big(\,\mathrm{TCAM}\!\big(\mathrm{VLIF}\!\big(\mathrm{PU}_2(\mathrm{DFRB}(\mathbf{X}))\big)\big)\Big), \label{eq:sshb-expand}\\
+\mathbf{X}_S &\;=\; \mathrm{Up}_2\!\Big(\,\big(\mathrm{TCS}\!\circ\!\mathrm{TDBN}\!\circ\!\mathrm{Conv}\!\circ\!\mathrm{VLIF}\big)^{\!\times 2}(\mathbf{X}_T)\,\Big) \;+\; \mathrm{DFRB}(\mathbf{X}), \label{eq:sshb-refine}\\
+\mathrm{SSHB}(\mathbf{X}) &\;=\; \mathrm{FSE}\!\big(\mathrm{TCS}(\mathbf{X}_S)\big). \label{eq:sshb}
+\end{align}
+The PixelUnshuffle factor $r\!=\!2$ raises the effective time
+length from $T\!=\!4$ to $T\!\cdot\!r^{2}\!=\!16$ for the
+$\mathrm{TCAM}$ head, then $\mathrm{Conv3d}$ with stride
+$r^{2}$ along the time axis compresses it back to $T\!=\!4$ before
+the spatial-conv refinement; the $\mathrm{FSE}$ MLP modulates the
+2-D FFT magnitude (preserving phase) for global mixing at
+$\mathcal{O}(N\log N)$ cost. The \SSHB{} is used at the wide outer
+level---once in the encoder and twice in the decoder---where the
+absolute energy budget per pixel is highest; the per-block SOP
+cost is offset by the high temporal sparsity that VLIF maintains at
+full resolution (see Section~\ref{sec:exp-energy}).
 
 \subsection{Loss Function}\label{sec:framework-loss}
 
@@ -823,7 +858,7 @@ cross-image\,$\to$\,cross-plane mean.
 
 \textbf{Baselines.}\;\;A \emph{PlainUNet} of equivalent capacity
 ($C\!=\!24$, encoder/decoder block counts identical to \OrbitVLIF,
-plain BN+ReLU residual blocks, no \SHAM, no \DSP, no spike
+plain BN+ReLU residual blocks, no \SHAM, no \SSHB, no spike
 quantisation, $1.31$\,M parameters) isolates the contribution of
 \OrbitVLIF's spiking + frequency-aware design. Federated experiments
 additionally include an ANN-\OrbitVLIF{} variant (every LIF
@@ -909,7 +944,7 @@ Section~\ref{sec:framework-arch} on CUHK-CR1 under matched training
         replaced by the identity, removing the joint
         temporal-amplitude / DCT-spatial recalibration.
   \item \textbf{B2: $-$DualPath.}\;\;The PixelShuffle-LIF spatial
-        path of \MFRB{} (eqs.~\ref{eq:mfrb-cross}) is removed,
+        path of \DFRB{} (eqs.~\ref{eq:dfrb-cross}) is removed,
         collapsing each block to a single LIF residual unit; the
         $\sigma(g)$ cross-scale gate is also removed.
   \item \textbf{B3: $-$\FQS{}.}\;\;The $5$-level quantisation of
@@ -1090,13 +1125,15 @@ are visualised in the camera-ready Dirichlet heatmap.
 
 \begin{figure}[t]
   \centering
-  \includegraphics[width=\columnwidth]{fig10_per_layer_energy_paired.pdf}
-  \caption{Per-layer estimated energy: ANN (orange) vs.\
-  \OrbitVLIF{} SNN dual bound (blue, hatched upper at
-  $4.6$\,pJ/MAC; blue, solid lower at $0.077$\,pJ/SOP) for the
-  top-$12$ contributing layers, $\mu$J per image. Bars use the
-  per-layer non-zero MAC count measured by hooks.}
-  \label{fig:energy-perlayer}
+  \includegraphics[width=\columnwidth]{fig10_spike_rate_histogram.pdf}
+  \caption{MAC-weighted distribution of the per-layer
+  input non-zero rate $r_\ell$ across all instrumented Conv2d
+  layers. Each bin's height is the fraction of total network MACs
+  whose hosting layer falls in that $r_\ell$ range; the annotation
+  on top of each bar is the number of layers in the bin.
+  The text box reports the total ANN/SNN-lower energy ratio
+  computed from the same run.}
+  \label{fig:r-histogram}
 \end{figure}
 
 \textbf{Methodology and disclosure.}\;\;Per-image inference energy
@@ -1142,21 +1179,23 @@ even without any neuromorphic hardware, while $72\!\times\!$
 requires a substrate that supports the full SOP / spike abstraction
 (Loihi-2, Speck, Akida).
 
-\textbf{Per-layer attribution.}\;\;Figure~\ref{fig:energy-perlayer}
-shows that the bulk of the absolute energy savings is concentrated
-in the four downsample / upsample convs of the U-Net skeleton
-(\texttt{up3\_2.conv}, \texttt{up2\_1.conv},
-\texttt{down1\_2.conv}, \texttt{down2\_3.conv}, $r_\ell$ between
-$0.34$ and $0.68$) and the \texttt{lif\_2.channel\_adjust}
-($r_\ell\!=\!0.13$) of the dual-frequency
-\MFRB. These five layers carry the majority of the
-$1.04$\,GMAC of \emph{spike-driven} computation; the remaining
-$3.47$\,GMAC operate on residual or post-BN dense inputs and
-gain no spike-sparsity advantage. This per-layer attribution
-explains why the conservative $1.21\!\times\!$ upper bound is
-relatively close to the realistic deployment estimate---a
-sizeable fraction of the network simply cannot benefit from
-sparse SOP semantics on standard hardware.
+\textbf{Per-layer attribution.}\;\;Figure~\ref{fig:r-histogram}
+visualises the MAC-weighted distribution of $r_\ell$ across all
+instrumented Conv2d layers. Two regimes emerge. A first cluster of
+layers exhibits low-to-moderate $r_\ell$ (roughly $[0.0,0.7)$):
+these are the spike-driven convs whose inputs are direct LIF
+outputs---primarily the $1\!\times\!1$ channel-adjust convs inside
+\DFRB{} and the four U-Net downsample / upsample convs that bridge
+adjacent levels. Together they account for the spike-sparsity
+advantage. A second cluster sits in the high-$r_\ell$ tail
+($[0.7,1.0]$): these convs operate on residual or post-BN dense
+inputs that do not pass through a LIF gate, so they cannot benefit
+from sparse SOP semantics on standard hardware. This bimodal
+attribution explains why the conservative $1.21\!\times\!$ upper
+bound (which charges every non-zero MAC at the full ANN rate)
+remains relatively close to the deployment estimate---a sizeable
+fraction of the per-image MAC budget simply has $r_\ell\!\to\!1$
+on every input.
 
 \textbf{Energy is data-dependent in principle.}\;\;Comparing
 CR1 and CR2 inferences on the same architecture (A1 ckpt vs.\ A2
@@ -1196,8 +1235,8 @@ cloudy and ground-truth pixels, biasing the selection toward harder
 samples). Across all four tiles, \OrbitVLIF{} recovers texture and
 colour consistency that visibly exceeds the PlainUNet baseline,
 particularly along thin-cloud edges where the high-frequency
-content carried by \MFRB's spatial-frequency path
-(Section~\ref{sec:framework-mfrb}) is most active. The
+content carried by \DFRB's spatial-frequency path
+(Section~\ref{sec:framework-dfrb}) is most active. The
 quality gap is concentrated in regions of moderate cloud density
 ($\boldsymbol{\gamma}\!\approx\!0.5$ in \AGFM); under fully-opaque
 cloud cover both architectures degrade similarly, consistent with
@@ -1208,7 +1247,7 @@ the smaller CR2 advantage reported in Table~\ref{tab:centralized}.
 We presented \OrbitVLIF, the first decentralized federated learning
 framework for SNN-based optical cloud removal on a satellite
 constellation. By co-designing four building blocks---a
-multi-frequency residual block (\MFRB), a spectral-hybrid attention
+dual-frequency residual block (\DFRB), a spectral-hybrid attention
 module (\SHAM), a five-level quantized spike activation (\FQS),
 and an adaptive gated fusion module (\AGFM)---and integrating them
 into a \textsc{FedBN}\,+\,Gossip pipeline under source-level

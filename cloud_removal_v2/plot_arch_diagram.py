@@ -641,7 +641,7 @@ def _panel_module_sham(ax, x0, y0, w, h):
             fontsize=4.6, fontstyle="italic", color=darken(C_GRAY,0.10))
     for t in range(nc):
         tensor_3d(ax, cx0+t*dx, y_t_in, 0.10, 0.10, 0.05, C_BLUE, zorder=2)
-    ax.text(cx0+nc*dx+0.05, y_t_in, rf"$T{=}{nc}$",
+    ax.text(cx0+nc*dx+0.05, y_t_in, rf"$T={nc}$",
             ha="left", va="center", fontsize=4.5, color=darken(C_GRAY,0.10))
 
     wcs = [C_ORANGE, C_BLUE, C_GREEN, C_PURPLE]

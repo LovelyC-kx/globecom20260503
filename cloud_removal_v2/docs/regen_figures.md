@@ -22,8 +22,10 @@ The two commits you need are:
 * `4f27a10` — `fix(energy): persist pJ constants in JSON + freshen
   0.9→0.077 labels` (so `energy_summary.json` writes
   `ac_pj_per_op = 0.077` correctly).
-* `d1817cd` — `fig(arch): fancy 3-D OrbitVLIF diagram replaces flat
-  fig1.tex` (the new `plot_arch_diagram.py`).
+* `0611fa8` — `refactor(arch+figs): correct architecture diagram +
+  r-histogram for fig10` (TRUE VLIFNet topology with U-bend, new
+  module names DFRB/SSHB/SHAM/etc., fig10 → MAC-weighted spike-rate
+  histogram).
 
 ---
 
@@ -37,16 +39,19 @@ they will be written correctly.
 python -m cloud_removal_v2.energy_estimation \
     --ckpt Outputs_v1/centralized_A1_vlif_cr1_best.pt \
     --data_root /root/autodl-tmp/C-CUHK \
-    --source_subdir CUHK-CR1 \
     --split test \
-    --num_samples 32 \
+    --n_samples 32 \
     --patch_size 64 \
-    --backbone snn \
     --out_dir ./Outputs_energy_A1 \
     --ann_pj_per_mac 4.6 \
     --ac_pj_per_op  0.077 \
     --device cuda
 ```
+
+Note: the CLI no longer accepts `--source_subdir`, `--num_samples` or
+`--backbone`.  They were renamed/removed in
+`cloud_removal_v2/energy_estimation.py:434–454` — see that file for
+the canonical argument list.
 
 Expected stdout (sanity check):
 
@@ -69,13 +74,30 @@ python -m cloud_removal_v2.plot_arch_diagram \
     --out_name fig1.pdf
 ```
 
-Three panels in one 8.5 x 5.4-in figure:
+Six panels in one 8.8 x 6.0-in figure:
 
 | Panel | Content                                                |
 |-------|--------------------------------------------------------|
-| (a)   | Single-sat U-Net: Input → PE → E1-3 → DSP → D3-1 → Head, with 3-D feature-map slabs and AGFM skip diamonds |
+| (a)   | Single-sat U-Net: Input → PE → SSHB(L1) → 2×DFRB(L2) → 4×DFRB(L3) → **direct U-bend (no bottleneck)** → 2×DFRB(L3) → 2×DFRB(L2) → SSHB(L1) ×2 → Head; AGFM skip diamonds at L1 and L2 only |
 | (b)   | 5x10 Walker-Star: tilted ellipse rings + Gossip chain + dashed shortcut |
-| (c)   | MFRB / 5QS / SHAM module zoom-ins                       |
+| (c)   | DFRB module zoom-in — Dual-Frequency Residual Block    |
+| (d)   | 5QS module zoom-in — 5-level Quantized Spike (was MultiSpike4) |
+| (e)   | SHAM module zoom-in — Spectral-Hybrid Attention (TAA + SFA) |
+| (f)   | SSHB module zoom-in — Spectro-temporal Spike Hyper-Block |
+
+Module-name legend (paper text should now use the new names):
+
+| New name | Old name(s)               | Role                                        |
+|----------|---------------------------|---------------------------------------------|
+| DFRB     | MFRB / SRB / Spiking_Residual_Block | Dual-Frequency Residual Block      |
+| SSHB     | SUNet_Level1_Block / "DSP" | Spectro-temporal Spike Hyper-Block         |
+| SHAM     | FSTAModule                | Spectral-Hybrid Attention Module            |
+| 5QS      | MultiSpike4               | 5-level Quantized Spike                     |
+| AGFM     | GatedSkipFusion           | Adaptive Gated Fusion Module                |
+| TCAM     | TimeAttention / CTM       | Temporal-Channel Attention Module           |
+| FSE      | FreMLPBlock               | Frequency Spectral Enhancement MLP          |
+| VLIF     | mem_update + 5QS          | Variable-state LIF neuron                   |
+| TCS-Att  | _MDAttention              | Temporal-Channel-Spatial Attention          |
 
 ---
 
@@ -118,7 +140,7 @@ file doesn't abort the others):
 | 6   | `fig6_energy_bars.pdf`                | `Outputs_energy_A1/energy_summary.json`     |
 | 7   | `fig7_centralized_4panel.pdf`         | A1/A2/C2 npz + summary                       |
 | 9   | `fig9_per_layer_spike_rate.pdf`       | `Outputs_energy_A1/energy_summary.json`     |
-| 10  | `fig10_per_layer_energy_paired.pdf`   | `Outputs_energy_A1/energy_summary.json`     |
+| 10  | `fig10_spike_rate_histogram.pdf`      | `Outputs_energy_A1/energy_summary.json`     |
 
 Tables:
 
@@ -201,7 +223,7 @@ PY
 
 ```bash
 git pull
-python -m cloud_removal_v2.energy_estimation --ckpt Outputs_v1/centralized_A1_vlif_cr1_best.pt --data_root /root/autodl-tmp/C-CUHK --source_subdir CUHK-CR1 --split test --num_samples 32 --patch_size 64 --backbone snn --out_dir ./Outputs_energy_A1 --ann_pj_per_mac 4.6 --ac_pj_per_op 0.077 --device cuda
+python -m cloud_removal_v2.energy_estimation --ckpt Outputs_v1/centralized_A1_vlif_cr1_best.pt --data_root /root/autodl-tmp/C-CUHK --split test --n_samples 32 --patch_size 64 --out_dir ./Outputs_energy_A1 --ann_pj_per_mac 4.6 --ac_pj_per_op 0.077 --device cuda
 python -m cloud_removal_v2.plot_arch_diagram --out_dir ./figures
 python -m cloud_removal_v1.plot_paper_figs --outputs_v1 ./Outputs_v1 --outputs_v2 ./Outputs_v2 --energy_dir ./Outputs_energy_A1 --out_dir ./figures --qual_dataset_root /root/autodl-tmp/C-CUHK --figs all --tables yes
 ```
