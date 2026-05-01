@@ -1181,21 +1181,27 @@ requires a substrate that supports the full SOP / spike abstraction
 
 \textbf{Per-layer attribution.}\;\;Figure~\ref{fig:r-histogram}
 visualises the MAC-weighted distribution of $r_\ell$ across all
-instrumented Conv2d layers. Two regimes emerge. A first cluster of
-layers exhibits low-to-moderate $r_\ell$ (roughly $[0.0,0.7)$):
-these are the spike-driven convs whose inputs are direct LIF
-outputs---primarily the $1\!\times\!1$ channel-adjust convs inside
-\DFRB{} and the four U-Net downsample / upsample convs that bridge
-adjacent levels. Together they account for the spike-sparsity
-advantage. A second cluster sits in the high-$r_\ell$ tail
-($[0.7,1.0]$): these convs operate on residual or post-BN dense
-inputs that do not pass through a LIF gate, so they cannot benefit
-from sparse SOP semantics on standard hardware. This bimodal
-attribution explains why the conservative $1.21\!\times\!$ upper
-bound (which charges every non-zero MAC at the full ANN rate)
-remains relatively close to the deployment estimate---a sizeable
-fraction of the per-image MAC budget simply has $r_\ell\!\to\!1$
-on every input.
+$190$ instrumented Conv2d layers. The distribution is strongly
+right-skewed and concentrated at $r_\ell\!\to\!1$: $\sim\!77\%$
+of the network's MACs live in $151$ layers whose
+$r_\ell\!\in\![0.9,1.0]$ bin, while only $\sim\!9\%$ of MACs
+($n\!=\!13$ layers) populate the truly sparse $[0.0,0.1)$ bin and
+the remaining $\sim\!14\%$ are spread across the middle bins.
+The sparse cluster corresponds to convs whose inputs are direct
+LIF outputs---primarily the $1\!\times\!1$ channel-adjust convs
+inside \DFRB{} and the U-Net downsample / upsample convs that
+bridge adjacent levels. The dense cluster ($r_\ell\!\to\!1$)
+consists of convs fed by residual or post-BN paths that bypass
+the LIF gate and therefore carry continuous, densely non-zero
+activations. Two consequences follow. First, the
+$72\!\times\!$ deployment-target reduction is driven \emph{primarily}
+by the constant ratio $4.6 / 0.077\!\approx\!60\!\times\!$ and only
+modestly ($\sim\!1.2\!\times\!$) by spike sparsity itself; the
+sparsity advantage is concentrated in that $9\%$ MAC fraction.
+Second, the conservative $1.21\!\times\!$ upper bound stays close
+to the ANN baseline precisely because $77\%$ of MACs have
+$r_\ell\!\to\!1$ on every input and gain no spike-sparsity
+benefit on standard hardware.
 
 \textbf{Energy is data-dependent in principle.}\;\;Comparing
 CR1 and CR2 inferences on the same architecture (A1 ckpt vs.\ A2

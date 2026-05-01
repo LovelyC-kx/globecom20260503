@@ -1149,7 +1149,14 @@ def fig6_energy_bars(args, out_dir: Path) -> None:
         if value > 0:
             txt = _fmt_pj(value)
             if ann > 0 and i != 0:
-                txt += f"\n({value / ann:.2f}× ANN)"   # ×
+                # Show reduction factor (ANN / SNN) consistent with §V
+                # ("72× reduction") rather than the fraction (0.01× ANN)
+                # which reads as a small advantage at first glance.
+                ratio = ann / value
+                if ratio >= 10:
+                    txt += f"\n({ratio:.0f}× lower)"
+                else:
+                    txt += f"\n({ratio:.2f}× lower)"
             ax.text(i, plot_v, txt, ha="center", va="bottom",
                     fontsize=7.5, fontweight="bold")
         else:
