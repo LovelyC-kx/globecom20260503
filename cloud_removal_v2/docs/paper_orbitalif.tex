@@ -208,10 +208,13 @@ while three satellites hold $\{117,118,118\}$ samples.
 
 \subsection{Decentralized Training Protocol}\label{sec:sysmodel-procedure}
 
-Training runs for $R\!=\!200$ rounds; each round has four steps.
-(S1)~Each satellite performs $E\!=\!2$ local AdamW steps on
+Training runs for $R\!=\!200$ rounds; each round consists of
+$I\!=\!2$ inner cycles of (S1)$\to$(S2) followed once by
+(S3)$\to$(S4).
+(S1)~Each satellite performs $E\!=\!2$ local AdamW epochs over
 $\mathcal{D}_{i,k}$.
-(S2)~Intra-plane ring AllReduce averages non-BN parameters:
+(S2)~Intra-plane uniform averaging across the $K$ satellites of plane
+$i$ (acts on the full state including BN-tagged parameters):
 \begin{equation}
 x_i^{(r+\frac{1}{2})}
 \;=\;
@@ -229,20 +232,24 @@ W_{ij}\, x_j^{(r+\frac{1}{2})},
 \quad i \in \mathcal{N},
 \label{eq:gossip}
 \end{equation}
-where $W\!\in\!\mathbb{R}^{N\times N}$ uses Metropolis weights
-$W_{ij}\!=\!1/(\max(d_i,d_j)\!+\!1)$ for adjacent planes
-($d_i$ being the chain-degree of node $i$) and
-$W_{ii}\!=\!1\!-\!\sum_{j\sim i} W_{ij}$ on the diagonal; for the
-$N\!=\!5$ chain this gives off-diagonals $\tfrac{1}{3}$ and self-weights
-$\{\tfrac{2}{3},\tfrac{1}{3},\tfrac{1}{3},\tfrac{1}{3},\tfrac{2}{3}\}$.
+where $W$ implements uniform averaging over each plane's open
+neighbourhood, $W_{ij}\!=\!1/(d_i\!+\!1)$ for
+$j\!\in\!\mathcal{N}(i)\!\cup\!\{i\}$ ($d_i$ is the chain-degree of
+plane $i$). For the $N\!=\!5$ chain this gives diagonal weights
+$\{\tfrac{1}{2},\tfrac{1}{3},\tfrac{1}{3},\tfrac{1}{3},\tfrac{1}{2}\}$
+with off-diagonals $1/(d_i\!+\!1)$ to each chain-neighbour. $W$ is
+row-stochastic but asymmetric at the boundary, reflecting the
+degree-1 endpoint planes.
 (S4)~Intra-plane broadcast of $x_i^{(r+1)}$ to all satellites in plane $i$.
 
-Following \textsc{FedBN}~\cite{ref:fedbn}, all BN-tagged
-parameters---affine $(\gamma,\beta)$, running statistics, and TDBN
-parameters---are excluded from both \eqref{eq:intraplane} and
-\eqref{eq:gossip}. Only non-BN convolutional and attention weights
-are exchanged, so each satellite's normalization adapts to its local
-cloud-density distribution. Per-round inter-plane traffic equals
+Following \textsc{FedBN}~\cite{ref:fedbn}, BN-tagged parameters
+---affine $(\gamma,\beta)$, running statistics, and TDBN
+parameters---are excluded only from the inter-plane Gossip step
+\eqref{eq:gossip}, so each plane retains a plane-local BN state that
+adapts to its own cloud-density distribution. Intra-plane averaging
+\eqref{eq:intraplane} keeps these parameters, since each plane
+publishes a single outgoing weight set per round.
+Per-round inter-plane traffic equals
 $4\!\cdot\!d_{\rm shared}\!\cdot\!2\!\cdot\!(N\!-\!1)$ bytes
 (fp32 weights, both directions, $N\!-\!1\!=\!4$ chain edges); the
 $R\!=\!200$-round cumulative volume is reported in
@@ -281,9 +288,9 @@ $C\!=\!24$ (${\approx}\,2.30$\,M parameters).
   \SSHB{}, dual-frequency \DFRB{}, adaptive gated \AGFM{}, and
   frequency-spatial \SHAM{}; global residual adds the predicted
   correction to the cloudy input. \textbf{(b)}~Decentralized
-  $5\!\times\!10$ Walker-Star constellation: intra-plane ring
-  AllReduce and inter-plane Gossip mix non-BN parameters; BN-tagged
-  parameters remain local.}
+  $5\!\times\!10$ Walker-Star constellation: intra-plane uniform
+  averaging mixes the full state, while inter-plane Gossip mixes only
+  non-BN parameters so each plane retains a plane-local BN state.}
   \label{fig:overview}
 \end{figure*}
 
@@ -444,8 +451,9 @@ block, providing global receptive field in $O(N\log N)$:
 with $\varepsilon\!=\!10^{-3}$ and $\lambda\!=\!0.1$. Charbonnier
 handles cloud-occlusion outliers robustly; SSIM preserves structural
 consistency and cloud-boundary sharpness. The constellation training
-pipeline follows Section~\ref{sec:sysmodel}: all BN-tagged parameters
-are kept local; only non-BN weights are exchanged.
+pipeline follows Section~\ref{sec:sysmodel}: BN-tagged parameters
+are excluded from inter-plane Gossip (each plane retains a plane-local
+BN state), while intra-plane averaging mixes the full state.
 \textsc{FedBN}~\cite{ref:fedbn} and Gossip~\cite{ref:gossip-boyd}
 are adopted as system-level strategies suited to the constellation
 topology; they are not proposed as new FL algorithms.
@@ -473,9 +481,10 @@ with standard 2D BatchNorm.
 \textbf{Training.} Centralized: $400$ epochs, AdamW lr\,$10^{-3}$
 cosine$\to$\,$10^{-7}$, $3$-epoch warmup, batch~$4$, gradient clip
 $\|g\|_2\!\le\!1$. Ablations: $300$ epochs. Federated: $R\!=\!200$
-rounds, $E\!=\!2$ local epochs, $\alpha\!=\!0.1$. Metrics: PSNR,
-SSIM, cumulative inter-plane comm.\ (MB), wall time (h). Energy
-analysis uses forward hooks on $32$ CR1 test patches.
+rounds, $I\!=\!2$ intra-plane cycles per round, $E\!=\!2$ local
+epochs per cycle, $\alpha\!=\!0.1$. Metrics: PSNR, SSIM, cumulative
+inter-plane comm.\ (MB), wall time (h). Energy analysis uses forward
+hooks on $32$ CR1 test patches.
 
 \subsection{Centralized Cloud-Removal Performance}\label{sec:exp-centralized}
 
@@ -728,11 +737,11 @@ attention (\SHAM{}), adaptive gated cross-stage fusion (\AGFM{}),
 and full-resolution spectro-temporal hyper-blocks (\SSHB{}) into a
 sparse spiking dataflow that preserves pixel-level restoration
 capability. The training pipeline runs entirely between satellites
-through intra-plane ring AllReduce and inter-plane Gossip mixing,
-with all BN-tagged parameters kept local under the \textsc{FedBN}
-protocol; this avoids both the bandwidth cost of downlinking raw
-observations and the dependence on a centralized ground parameter
-server.
+through intra-plane uniform averaging and inter-plane Gossip mixing,
+with BN-tagged parameters kept plane-local across the inter-plane
+step under the \textsc{FedBN} protocol; this avoids both the
+bandwidth cost of downlinking raw observations and the dependence on
+a centralized ground parameter server.
 
 Empirically, the $2.30$\,M onboard deployment variant attains
 $25.37$\,dB\,/\,$0.7728$ PSNR\,/\,SSIM on CUHK-CR1 and
