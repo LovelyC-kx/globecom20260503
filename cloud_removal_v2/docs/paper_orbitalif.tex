@@ -193,8 +193,9 @@ samples, whereas others may mainly encounter thick clouds or complex
 cloud distributions. Centralizing all raw observations on the ground
 for training would incur high communication overhead and also
 contradict the trend toward autonomous in-orbit processing emphasized
-by Space-CPN. Federated learning provides a natural
-solution~\cite{ref:fedavg}: each satellite trains a model on its local
+by Space-CPN. Federated
+learning~\cite{ref:fedavg,ref:fedbn} provides a natural
+solution: each satellite trains a model on its local
 data and exchanges model parameters rather than raw observations.
 However, standard centralized federated learning typically relies on a
 ground parameter server, whereas LEO constellations are characterized
@@ -397,36 +398,39 @@ without uploading raw observations.
 
 \subsection{Decentralised Onboard Training Procedure}\label{sec:sysmodel-procedure}
 
-The training proceeds in $T$ global communication rounds. Round $0$
+The training proceeds in $R$ global communication rounds. Round $0$
 starts from a common random initialisation $x^{(0)}\!\in\!\mathbb{R}^d$
 that is broadcast to every satellite once at deployment time. Each
-subsequent round $t\!\in\!\{0, \ldots, T-1\}$ then consists of four
-steps.
+subsequent round $r\!\in\!\{0, \ldots, R-1\}$ then consists of four
+steps. The symbol $r$ here counts inter-satellite \emph{communication
+rounds} and is distinct from the spike-train time horizon $T\!=\!4$
+of the underlying SNN, which is internal to a single forward pass and
+discussed in Section~\ref{sec:framework}.
 
 \subsubsection*{S1: Local update}
-At the beginning of round $t$, each satellite initialises its model
+At the beginning of round $r$, each satellite initialises its model
 from its plane-level broadcast model:
 \begin{equation*}
-x_{i,k}^{(t, 0)} \;=\; x_i^{(t)},
+x_{i,k}^{(r, 0)} \;=\; x_i^{(r)},
 \end{equation*}
-with $x_i^{(0)}\!=\!x^{(0)}$ at round $t\!=\!0$.
+with $x_i^{(0)}\!=\!x^{(0)}$ at round $r\!=\!0$.
 Satellite $s_{i,k}$ then performs $E$ local AdamW steps on its dataset
 $\mathcal{D}_{i,k}$:
 \begin{equation}
-x_{i,k}^{(t, e+1)}
+x_{i,k}^{(r, e+1)}
 \;=\;
 \mathrm{AdamW}\!\left(
-x_{i,k}^{(t, e)},
+x_{i,k}^{(r, e)},
 \,
-\nabla \tilde{f}_{i,k}\!\left( x_{i,k}^{(t, e)} \right),
+\nabla \tilde{f}_{i,k}\!\left( x_{i,k}^{(r, e)} \right),
 \,
-\eta_t
+\eta_r
 \right),
 \quad e\!=\!0, \ldots, E\!-\!1,
 \label{eq:localstep}
 \end{equation}
 where $\nabla\tilde{f}_{i,k}$ is the mini-batch stochastic estimate
-of $\nabla f_{i,k}$ and $\eta_t$ is the learning rate at round $t$.
+of $\nabla f_{i,k}$ and $\eta_r$ is the learning rate at round $r$.
 The notation $\mathrm{AdamW}(\cdot,\cdot,\cdot)$ stands for the
 abstract local-update operator implemented by the AdamW optimiser;
 replacing it by SGD or any other optimiser leaves the rest of the
@@ -437,32 +441,36 @@ After local updates, the $K$ satellites in each orbital plane perform
 ring AllReduce over quasi-stationary intra-plane ISLs. This produces
 the plane-level consensus model
 \begin{equation}
-x_i^{(t + \frac{1}{2})}
+x_i^{(r + \frac{1}{2})}
 \;=\;
 \frac{1}{K}
 \sum_{k \in \mathcal{K}_i}
-x_{i,k}^{(t, E)}.
+x_{i,k}^{(r, E)}.
 \label{eq:intraplane}
 \end{equation}
 To accommodate source-level feature heterogeneity, we adopt the
-\textsc{FedBN}~\cite{ref:fedbn} normalisation protocol: only
-batch-normalisation \emph{affine} parameters $(\gamma, \beta)$ are
-included in $x_{i,k}^{(t,E)}$ and therefore enter the average in
-(\ref{eq:intraplane}); the BN \emph{running statistics}
-(running mean and running variance) are kept per-satellite and are
-not exchanged through either ring AllReduce or, later, the inter-plane
-Gossip step.
+\textsc{FedBN}~\cite{ref:fedbn} normalisation protocol: every
+batch-normalisation parameter, including the affine
+$(\gamma,\beta)$, the running mean, and the running variance, is
+\emph{excluded} from the averaging in (\ref{eq:intraplane}); these
+parameters are taken from the plane leader of plane $i$ verbatim and
+are not averaged across the $K$ satellites of the plane. The same
+exclusion is applied later in the inter-plane Gossip step
+(Section~\ref{sec:sysmodel-procedure}, S3). Local training in S1
+then refines the BN parameters of each satellite on its own data, so
+that BN statistics naturally adapt to the source distribution
+observed locally.
 
 \subsubsection*{S3: Inter-plane Gossip mixing}
 After intra-plane aggregation, each orbital plane obtains a plane-level
-model $x_i^{(t+\frac{1}{2})}$. The $N$ plane-level models are then
+model $x_i^{(r+\frac{1}{2})}$. The $N$ plane-level models are then
 mixed through single-step Gossip averaging~\cite{ref:gossip-boyd} over
 the inter-plane chain topology:
 \begin{equation}
-x_i^{(t+1)}
+x_i^{(r+1)}
 \;=\;
 \sum_{j \in \mathcal{N}}
-W_{ij} \, x_j^{(t + \frac{1}{2})},
+W_{ij} \, x_j^{(r + \frac{1}{2})},
 \quad i \in \mathcal{N},
 \label{eq:gossip}
 \end{equation}
@@ -473,18 +481,20 @@ W \mathbf{1} \!=\! \mathbf{1}, \quad
 \mathbf{1}^{\!\top} W \!=\! \mathbf{1}^{\!\top}, \quad
 W \!=\! W^{\!\top}.
 \end{equation*}
-Consistent with the \textsc{FedBN} convention adopted in S2, the
-Gossip step is applied only to shared restoration parameters
-(convolutional weights, BN affine parameters, and other dense layer
-weights). The BN running statistics remain local. In this way, the
+Consistent with the \textsc{FedBN} protocol adopted in S2, all
+batch-normalisation parameters (affine $(\gamma,\beta)$, running mean,
+and running variance) are also excluded from the Gossip mixing in
+(\ref{eq:gossip}); only the convolutional weights and other dense
+layer weights are mixed across orbital planes. In this way, the
 constellation shares restoration knowledge across orbital planes while
 avoiding the destructive averaging of feature statistics that would
-arise under pure FedAvg-style aggregation when satellites observe
-different cloud thicknesses, sensors, and atmospheric conditions.
+arise under pure FedAvg-style aggregation~\cite{ref:fedavg} when
+satellites observe different cloud thicknesses, sensors, and
+atmospheric conditions.
 
 \subsubsection*{S4: Intra-plane broadcast}
 Finally, each orbital plane broadcasts the mixed model
-$x_i^{(t+1)}$ to all satellites $s_{i,k}\!\in\!\mathcal{K}_i$ in the
+$x_i^{(r+1)}$ to all satellites $s_{i,k}\!\in\!\mathcal{K}_i$ in the
 same plane. This model is used as the initialisation for the next
 communication round. The above four steps complete one round of
 decentralised onboard training.
