@@ -34,6 +34,15 @@
 
 \graphicspath{{figures/}}
 
+% --- Tighten float spacing to fit within the 6-page IEEE limit ---
+\setlength{\textfloatsep}{6pt plus 1pt minus 1pt}
+\setlength{\floatsep}{6pt plus 1pt minus 1pt}
+\setlength{\intextsep}{6pt plus 1pt minus 1pt}
+\setlength{\dblfloatsep}{6pt plus 1pt minus 1pt}
+\setlength{\dbltextfloatsep}{6pt plus 1pt minus 1pt}
+\setlength{\abovecaptionskip}{3pt}
+\setlength{\belowcaptionskip}{0pt}
+
 \begin{document}
 
 % --- Title block ---
@@ -309,18 +318,13 @@ ISLs.
 
 \begin{figure*}[!t]
   \centering
-  \includegraphics[width=\textwidth]{fig_archi.png}
-  \caption{Overview of \OrbitALIF{}. \textbf{Top-left:} single-satellite
-  U-shaped backbone ($T\!=\!4$, $2.30$\,M parameters); stage~1 uses
-  \SSHB{}, deeper stages stack \DFRB{} with embedded \SHAM{}
-  attention, skip connections pass through \AGFM{} gates, and a global
-  residual reconstructs the cloud-free image. \textbf{Top-right:} one
-  global round in the life of satellite $s_{1,3}$ -- local SGD (S1),
-  intra-plane mean over the $K\!=\!10$ sats including BN (S2),
-  inter-plane chain-Gossip on the shared (non-BN) parameters (S3),
-  and broadcast back to its 10 sats (S4). \textbf{Bottom:}
-  inter-plane chain-Gossip on a $5$-plane chain -- each plane equally
-  averages with its $1$--$2$ neighbours; BN parameters remain
+  \includegraphics[width=0.92\textwidth]{fig_archi.png}
+  \caption{\OrbitALIF{} overview. \textbf{Left:} single-satellite
+  U-shaped backbone ($T\!=\!4$, $2.30$\,M params). \textbf{Top-right:}
+  one round on satellite $s_{1,3}$ -- local SGD (S1), intra-plane
+  mean over $K\!=\!10$ sats incl.\ BN (S2), inter-plane chain-Gossip
+  on shared (non-BN) parameters (S3), broadcast back (S4).
+  \textbf{Bottom:} chain-Gossip on $N\!=\!5$ planes; BN stays
   plane-local (FedBN).}
   \label{fig:archi}
 \end{figure*}
