@@ -1173,21 +1173,6 @@ def fig6_energy_bars(args, out_dir: Path) -> None:
     cur_lo, cur_hi = ax.get_ylim()
     ax.set_ylim(cur_lo, cur_hi * 4.0)
 
-    # Annotate r̄ — the effective non-zero MAC ratio that links the
-    # ANN bar (no spike sparsity) to the SNN bars (gated by r).
-    if r_bar > 0:
-        ax.text(0.02, 0.97,
-                f"$\\bar{{r}}$ (effective non-zero MAC ratio) "
-                f"$= {r_bar:.3f}$\n"
-                f"$E_{{\\rm SNN}} = \\sum_\\ell \\mathrm{{MAC}}_\\ell"
-                f"\\,r_\\ell\\,e_{{\\rm op}}$",
-                transform=ax.transAxes, fontsize=6.5,
-                color=cfg.get("_dummy", PALETTE_GRAY),
-                va="top", ha="left",
-                bbox=dict(boxstyle="round,pad=0.25",
-                          facecolor="white", edgecolor=PALETTE_GRAY,
-                          linewidth=0.4, alpha=0.85))
-
     fig.tight_layout(pad=0.3)
     _save_pdf(fig, out_dir / "fig6_energy_bars.pdf")
     plt.close(fig)
