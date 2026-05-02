@@ -197,29 +197,45 @@ re-tuning.
 
 \subsection{Constellation and Problem Setup}\label{sec:sysmodel-setup}
 
+\textbf{Notation.} Bold lowercase symbols such as $\mathbf{c}$ and
+$\mathbf{y}$ denote image tensors, while non-bold lowercase symbols
+denote scalars. Bold uppercase symbols denote matrices or feature
+tensors (e.g., $\mathbf{W}$, $\mathbf{X}$). Calligraphic letters
+denote sets. We use $i$ for orbital planes, $k$ for satellites
+within a plane, $r$ for communication rounds, $a$ for data-source
+indices, and $m$ for trainable-layer indices in energy accounting.
+
 We consider a Walker-Star LEO constellation of $N\!=\!5$ planes,
 each with $K\!=\!10$ satellites for $NK\!=\!50$
 nodes~\cite{ref:walker1984,ref:flsnn}. Intra-plane ISLs are
 quasi-continuous, and inter-plane links open only at polar
 encounters, which we model as a length-$N$ chain.
 
-\textbf{Local data and global objective.} Index plane by
-$i\!\in\!\{1,\dots,N\}$ and satellite-within-plane by
-$k\!\in\!\{1,\dots,K\}$. Each satellite $s_{i,k}$ holds a local
-dataset $\mathcal{D}_{i,k}$ of paired cloudy/clear tiles
-$(c,y)$, where $c$ is the cloudy input and $y$ the clear ground
-truth. \OrbitALIF{} is denoted $g_x$ and parameterized by
-$x\!\in\!\mathbb{R}^d$ ($d$ is the number of trainable scalars).
-With $\ell$ the per-pixel restoration loss defined in
+\textbf{Local data and global objective.} Index orbital planes by
+$i\!\in\!\{1,\dots,N\}$ and satellites within each plane by
+$k\!\in\!\{1,\dots,K\}$. Each satellite node $v_{i,k}$ holds a local
+paired dataset
+$\mathcal{D}_{i,k}=\{(\mathbf{c},\mathbf{y})\}$, where
+$\mathbf{c}$ is a cloudy RGB tile and $\mathbf{y}$ is the
+corresponding clear ground-truth tile.
+
+Let $g_{\boldsymbol{\theta}}$ denote the cloud-removal backbone used
+in \OrbitALIF{}, where $\boldsymbol{\theta}\!\in\!\mathbb{R}^{P}$
+collects all trainable parameters and $P$ is the number of trainable
+scalars. Given $\mathbf{c}$, the model predicts
+$\hat{\mathbf{y}}=g_{\boldsymbol{\theta}}(\mathbf{c})$.
+With $\ell$ denoting the per-pixel restoration loss defined in
 Section~\ref{sec:framework-loss}, the decentralized objective is
 \begin{equation}
-\min_{x \in \mathbb{R}^d}\;
-f(x)
-\;=\;
-\frac{1}{NK}\sum_{i,k}
+\min_{\boldsymbol{\theta}\in\mathbb{R}^{P}}\;
+f(\boldsymbol{\theta})
+=
+\frac{1}{NK}
+\sum_{i=1}^{N}
+\sum_{k=1}^{K}
 \frac{1}{|\mathcal{D}_{i,k}|}
-\!\!\sum_{(c,y)\in\mathcal{D}_{i,k}}\!\!
-\ell\!\left(g_x(c),y\right),
+\sum_{(\mathbf{c},\mathbf{y})\in\mathcal{D}_{i,k}}
+\ell\!\left(g_{\boldsymbol{\theta}}(\mathbf{c}),\mathbf{y}\right),
 \label{eq:globalobj}
 \end{equation}
 the standard cross-silo objective~\cite{ref:fedavg} restricted to
@@ -228,8 +244,8 @@ exchanges along the constellation graph.
 \textbf{Source-level heterogeneity.} Different orbits see different
 cloud climatologies. We model this with a source-level Dirichlet
 partition over $S\!=\!2$ domains (CUHK-CR1 thin and CUHK-CR2 thick
-cloud)~\cite{ref:hsu2019}: for each source $s$ a vector
-$\mathbf{q}^{(s)}\!\sim\!\Dir(\alpha\,\mathbf{1}_{NK})$ assigns
+cloud)~\cite{ref:hsu2019}: for each data source $a$ a mixing vector
+$\mathbf{q}^{(a)}\!\sim\!\Dir(\alpha\,\mathbf{1}_{NK})$ assigns
 fractions, post-hoc rebalanced to a five-tile floor per satellite.
 $\alpha\!=\!0.1$ is aggressive feature shift in the FedBN
 sense~\cite{ref:fedbn}, and Section~\ref{sec:exp-federated}
@@ -238,36 +254,40 @@ reports $\alpha\!=\!0.01$ as a stress test.
 \subsection{Decentralized Training Protocol}\label{sec:sysmodel-procedure}
 
 Training runs for $R\!=\!200$ rounds. Each round has four steps.
-Let $r$ index the round and $x_i^{(r)}$ denote the weights shared
-by plane $i$ at the start of round $r$. (S1)~Each satellite takes
-$E\!=\!2$ local AdamW steps. (S2)~Each plane runs an exact
-ring-AllReduce that replaces every member's weights with the plane
-mean of the post-step weights. After (S2) every satellite in a
-plane carries identical non-BN weights, so the inter-plane stage
-treats each plane as one logical node with state
-$x_i^{(r+1/2)}$. (S3)~Adjacent planes exchange a single Gossip
-step under the standard Metropolis mixing
-matrix~\cite{ref:gossip-boyd},
+Let $r$ index the round and $\boldsymbol{\theta}_i^{(r)}$ denote the
+shared non-BN parameters held by plane $i$ at the start of round
+$r$. (S1)~Each satellite takes $E\!=\!2$ local AdamW steps.
+(S2)~Each plane runs an exact ring-AllReduce that replaces every
+member's parameters with the plane mean of the post-step parameters.
+After (S2) every satellite in a plane carries identical non-BN
+parameters, so the inter-plane stage treats each plane as one
+logical node with state $\boldsymbol{\theta}_i^{(r+1/2)}$.
+(S3)~Adjacent planes exchange a single Gossip step under the
+standard Metropolis mixing matrix~\cite{ref:gossip-boyd},
 \begin{equation}
-x_i^{(r+1)}
+\boldsymbol{\theta}_i^{(r+1)}
 \;=\;
-\sum_{j \sim i \text{ or } j=i} W_{ij}\, x_j^{(r+1/2)},
+\sum_{j \sim i \text{ or } j=i}
+W_{ij}\,\boldsymbol{\theta}_j^{(r+1/2)},
 \label{eq:gossip}
 \end{equation}
-with $W_{ij}\!=\!1/(\max(d_i,d_j)\!+\!1)$ for adjacent planes
-$i,j$, where $d_i$ counts the chain neighbours of plane $i$, and
-diagonal entries $W_{ii}$ chosen so each row sums to one. On the
-$N\!=\!5$ chain the off-diagonals are $\tfrac{1}{3}$ and the
-self-weights are $\{\tfrac{2}{3},\tfrac{1}{3},\tfrac{1}{3},\tfrac{1}{3},\tfrac{2}{3}\}$.
-(S4)~Plane $i$ broadcasts $x_i^{(r+1)}$ to its members.
+with $W_{ij}\!=\!1/(\max(\deg(i),\deg(j))\!+\!1)$ for adjacent
+planes $i,j$, where $\deg(i)$ denotes the degree of plane $i$ in
+the inter-plane chain, and diagonal entries $W_{ii}$ are chosen so
+each row of $\mathbf{W}$ sums to one. On the $N\!=\!5$ chain the
+off-diagonals are $\tfrac{1}{3}$ and the self-weights are
+$\{\tfrac{2}{3},\tfrac{1}{3},\tfrac{1}{3},\tfrac{1}{3},\tfrac{2}{3}\}$.
+(S4)~Plane $i$ broadcasts $\boldsymbol{\theta}_i^{(r+1)}$ to its
+members.
 
 \textbf{FedBN-on-SNN.} (S2) and (S3) mix only \emph{shared}
 parameters. Every BN-tagged tensor stays local~\cite{ref:fedbn},
 including the affine pair, running statistics, and the threshold
 parameters of spikingjelly's Threshold-Dependent BN. Per-round
 inter-plane traffic is
-$4\!\cdot\!d_{\rm shared}\!\cdot\!2\!\cdot\!(N\!-\!1)$ bytes (fp32,
-both directions, $N\!-\!1\!=\!4$ edges), with the cumulative volume
+$4\!\cdot\!P_{\rm shared}\!\cdot\!2\!\cdot\!(N\!-\!1)$ bytes (fp32,
+both directions, $N\!-\!1\!=\!4$ edges), where $P_{\rm shared}$ is
+the number of shared non-BN scalars. The cumulative volume is
 reported in Table~\ref{tab:federated}.
 
 % =====================================================================
@@ -428,10 +448,10 @@ multiplicative gate $\mathbf{X}\!\odot\!\mathbf{X}_h$, then
 convolved and passed through TDBN. Group~2 applies the same
 template in the spatial-block domain through a $2\!\times$
 PixelShuffle-LIF, yielding $\mathbf{Z}_{2h}$. A learnable scalar
-gate $g$, initialized at zero so that the sigmoid $\sigma(g)$
-starts at $0.5$ and the cross-group product
-$\sigma(g)\,\mathbf{X}_h\!\odot\!\mathbf{Z}_{2h}$ is initially
-small, couples the two groups (instantiating P3). The block closes
+gate $\eta_{\rm cs}$, initialized at zero so that the sigmoid
+$\sigma(\eta_{\rm cs})$ starts at $0.5$ and the cross-group product
+$\sigma(\eta_{\rm cs})\,\mathbf{X}_h\!\odot\!\mathbf{Z}_{2h}$ is
+initially small, couples the two groups (instantiating P3). The block closes
 with a shortcut $\mathrm{Conv}(\mathbf{X})$ and a \SHAM{} tail.
 
 \textbf{Spectral-Spatial Hybrid Attention (\SHAM{}).} Following the
@@ -487,7 +507,7 @@ Structural Similarity Index Measure (SSIM) term,
 \ell(\hat{\mathbf{y}},\mathbf{y})
 =
 \frac{1}{|\Omega|}\!\sum_{p\in\Omega}
-\sqrt{(\hat{\mathbf{y}}_p-\mathbf{y}_p)^2+\varepsilon^2}
+\sqrt{\|\hat{\mathbf{y}}_p-\mathbf{y}_p\|_2^{2}+\varepsilon^2}
 +\lambda\bigl(1-\mathrm{SSIM}(\hat{\mathbf{y}},\mathbf{y})\bigr),
 \label{eq:loss}
 \end{equation}
@@ -537,24 +557,47 @@ baseline used for ablation reference.
 
 \textbf{Training.} Centralized runs use $400$ epochs of AdamW with
 $10^{-3}\!\to\!10^{-7}$ cosine learning rate, three warmup epochs,
-batch size four, and gradient clipping at $\|g\|_2\!\le\!1$.
+batch size four, and gradient clipping at $\|\mathbf{g}\|_2\!\le\!1$.
 Ablation runs use $300$ epochs. Federated runs use $R\!=\!200$
 rounds of $E\!=\!2$ local steps under Dirichlet
 $\alpha\!=\!0.1$. We report PSNR, SSIM, cumulative inter-plane
 communication in MB, and wall time.
 
-\textbf{Energy measurement.} Index trainable layers by $\ell$. A
+\textbf{Energy measurement.} Index trainable layers by $m$. A
 forward hook on every \texttt{Conv2d} and \texttt{Linear} records
-the per-call MAC count $\mathrm{MAC}_\ell$ and the input non-zero
-rate $r_\ell\!=\!\Pr[\mathbf{x}_\ell\!\neq\!0]$, accumulated over
-$32$ CUHK-CR1 test patches at $64\!\times\!64$. Two per-operation
-energy constants $e_{\rm op}$ are taken from the literature:
-$4.6$\,pJ/MAC for the ANN baseline (Horowitz, $45$\,nm
-CMOS~\cite{ref:horowitz2014}) and $77$\,fJ/SOP for SNN deployment
-on neuromorphic substrates such as Loihi-2~\cite{ref:loihi}, the
-value adopted by FLSNN~\cite{ref:flsnn} and
-ESDNet~\cite{ref:esdnet}. Per-image SNN energy is
-$\sum_\ell \mathrm{MAC}_\ell\,r_\ell\,e_{\rm op}$.
+the dense per-call MAC count $\mathrm{MAC}_m$ and the input non-zero
+rate $\rho_m\!=\!\Pr[\mathbf{x}_m\!\neq\!0]$, accumulated over $32$
+CUHK-CR1 test patches at $64\!\times\!64$. We use two
+operation-energy constants taken from the literature:
+$e_{\rm MAC}\!=\!4.6$\,pJ/MAC for standard CMOS (Horowitz, $45$\,nm
+CMOS~\cite{ref:horowitz2014}) and $e_{\rm SOP}\!=\!77$\,fJ/SOP for
+neuromorphic SNN execution on substrates such as
+Loihi-2~\cite{ref:loihi}, the value adopted by
+FLSNN~\cite{ref:flsnn} and ESDNet~\cite{ref:esdnet}.
+
+For ANN inference, the per-image energy is
+\begin{equation}
+E_{\rm ANN}
+=
+\sum_m \mathrm{MAC}^{\rm ANN}_m\,e_{\rm MAC}.
+\label{eq:ann-energy}
+\end{equation}
+For SNN inference, the effective synaptic operation count at layer
+$m$ is $\mathrm{SOP}_m\!=\!\rho_m\,\mathrm{MAC}^{\rm SNN}_m$. The
+neuromorphic lower-bound energy is
+\begin{equation}
+E_{\rm SNN}^{\rm neuro}
+=
+\sum_m \rho_m\,\mathrm{MAC}^{\rm SNN}_m\,e_{\rm SOP},
+\label{eq:snn-energy-neuro}
+\end{equation}
+and the CMOS upper-bound energy is
+\begin{equation}
+E_{\rm SNN}^{\rm CMOS}
+=
+\sum_m \rho_m\,\mathrm{MAC}^{\rm SNN}_m\,e_{\rm MAC}.
+\label{eq:snn-energy-cmos}
+\end{equation}
 
 \subsection{Per-Image Inference Energy}\label{sec:exp-energy}
 
@@ -666,7 +709,7 @@ disabling one \OrbitALIF{} component at a time and retraining on
 CR1 for $300$ epochs. B1 replaces every \SHAM{} block with the
 identity. B2 replaces every \DFRB{} with a single-group residual
 block that keeps only the temporal LIF group, removing the
-PixelShuffle-LIF spatial path and the cross-scale gate $\sigma(g)$.
+PixelShuffle-LIF spatial path and the cross-scale gate $\sigma(\eta_{\rm cs})$.
 B3 replaces \FQS{} with a binary spike, keeping the surrogate
 gradient window $[0,4]$ and $1/4$ scale unchanged so that only
 the forward quantization granularity changes. \AGFM{} is excluded
