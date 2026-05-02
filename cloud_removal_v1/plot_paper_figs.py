@@ -383,9 +383,13 @@ def _setup_mpl() -> None:
 
 
 def _save_pdf(fig, out_path: Path) -> None:
-    """Vector PDF write at 600 dpi (raster fallbacks crisp on print)."""
+    """Vector PDF write at 600 dpi (raster fallbacks crisp on print).
+
+    Also writes a sibling PNG at 300 dpi for quick previews / slide use.
+    """
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, format="pdf", dpi=600)
+    fig.savefig(out_path.with_suffix(".png"), format="png", dpi=300)
     _log(f"wrote {out_path}")
 
 
