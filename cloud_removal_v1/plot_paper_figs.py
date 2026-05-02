@@ -899,7 +899,6 @@ def fig5_federated_curves(args, out_dir: Path) -> None:
     """
     _setup_mpl()
     import matplotlib.pyplot as plt
-    from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
     outputs_v2 = Path(args.outputs_v2)
 
@@ -1023,28 +1022,7 @@ def fig5_federated_curves(args, out_dir: Path) -> None:
         hi = max(ymaxs) + 0.4
         ax.set_ylim(lo, hi)
 
-    # tight_layout BEFORE adding the inset — inset_axes confuses
-    # matplotlib's tight_layout solver and triggers a benign warning.
     fig.tight_layout(pad=0.3)
-
-    # Inset — cumulative communication in MB, log scale.
-    if any(c is not None for _, _, c in drawn):
-        ax_in = inset_axes(ax, width="38%", height="32%",
-                           loc="upper left",
-                           bbox_to_anchor=(0.06, -0.04, 1.0, 1.0),
-                           bbox_transform=ax.transAxes,
-                           borderpad=0.0)
-        for (label, rounds, comm_cum), (_, _, color, _) in zip(drawn, spec):
-            if comm_cum is None:
-                continue
-            ax_in.plot(rounds, comm_cum, color=color, linewidth=1.0)
-        ax_in.set_yscale("log")
-        ax_in.set_xlabel("round", fontsize=6)
-        ax_in.set_ylabel("MB (log)", fontsize=6)
-        ax_in.tick_params(axis="both", which="both", labelsize=6, length=2)
-        for spine in ax_in.spines.values():
-            spine.set_linewidth(0.4)
-        ax_in.grid(True, which="both", linewidth=0.3, alpha=0.4)
 
     _save_pdf(fig, out_dir / "fig5_federated_curves.pdf")
     plt.close(fig)
