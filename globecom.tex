@@ -95,53 +95,66 @@ for remote-sensing tasks.
 
 Existing cloud-removal methods have mainly been developed for
 ground-side processing. Early approaches rely on multi-temporal
-compositing or Synthetic Aperture Radar(SAR) multi-sensor fusion to reconstruct.
-Meraner et al.~\cite{ref:meraner2020} showed that a deep residual network conditioned on co-registered SAR data could effectively reconstruct cloud regions
-, setting a strong baseline for subsequent fusion
-methods. Ebel et al.~\cite{ref:ebel2021multisensor} further extended
-this line of work to global, all-season settings, but they require
-accurate registration and are therefore less suitable for time-critical scenarios where only a single
-cloudy snapshot is available. To overcome this limitation, single-image
-deep learning methods have been proposed. GAN- and CNN-based methods
-such as SpA-GAN, AMGAN-CR, and MemoryNet directly learn a mapping from
-a cloudy tile to its cloud-free counterpart~\cite{ref:cuhkcr}. More
-recent transformer- and diffusion-based models further improve
-restoration fidelity through long-range attention and iterative denoising~\cite{ref:cr-diffsurvey,ref:cr-cvpr2025,ref:cuhkcr}. Although these models provide strong restoration quality, their computational cost remains prohibitive for onboard satellite deployment. 
+compositing or synthetic-aperture-radar (SAR) multi-sensor fusion.
+Meraner~\emph{et~al.}~\cite{ref:meraner2020} showed that a deep
+residual network conditioned on co-registered SAR data effectively
+reconstructs cloud-occluded regions, setting a strong baseline for
+subsequent fusion methods. Ebel~\emph{et~al.}~\cite{ref:ebel2021multisensor}
+extended this line of work to global, all-season settings, but their
+pipeline requires accurate registration and is therefore less suitable
+for time-critical scenarios where only a single cloudy snapshot is
+available. To overcome this limitation, single-image deep-learning
+methods have been proposed: GAN- and CNN-based models such as
+SpA-GAN, AMGAN-CR, and MemoryNet directly learn a mapping from a
+cloudy tile to its cloud-free counterpart, while more recent
+transformer- and diffusion-based models further improve restoration
+fidelity through long-range attention and iterative
+denoising~\cite{ref:cuhkcr}. Although these models provide strong
+restoration quality, their computational cost remains prohibitive for
+onboard satellite deployment.
 
 
-A way to reduce response latency is to move cloud
-removal  to the satellite constellation,avoids downlinking large volumes of
-cloud-contaminated imagery . However,
-onboard cloud removal must satisfy several coupled physical
-constraints. First, small and medium LEO satellites have tight power
-budgets, typically on the order of $100$--$300$\,W for the whole
-bus~\cite{ref:spacecpn1}]. Second, satellite-to-ground and
-inter-satellite links have limited bandwidth and intermittent contact
-windows~\cite{ref:spacecpn1}. Third, constellations have
-asymmetric connectivity: intra-plane links are relatively stable,
-whereas inter-plane links are available only under restricted orbital
-visibility conditions~\cite{ref:walker1984}. Fourth, different
-satellites observe different geographic regions, cloud climatologies,
-illumination conditions, and sensor statistics, causing source-level
-feature heterogeneity .
+A natural way to reduce response latency is to move cloud removal
+onto the satellite constellation, which avoids downlinking large
+volumes of cloud-contaminated imagery. However, onboard cloud removal
+must satisfy several coupled physical constraints. First, small and
+medium LEO satellites have tight power budgets, typically on the
+order of $100$--$300$\,W for the whole bus~\cite{ref:spacecpn1}.
+Second, satellite-to-ground and inter-satellite links have limited
+bandwidth and intermittent contact windows~\cite{ref:spacecpn1}.
+Third, constellations have asymmetric connectivity: intra-plane links
+are relatively stable, whereas inter-plane links are available only
+under restricted orbital visibility conditions~\cite{ref:walker1984}.
+Fourth, different satellites observe different geographic regions,
+cloud climatologies, illumination conditions, and sensor statistics,
+causing source-level feature heterogeneity.
 
-Federated learning (FL) provides a solution by letting each satellite train locally and share only model parameters. Early satellite FL work applied FedAvg directly to satellite--ground scenarios, designing visibility-aware schedulers and asynchronous aggregation to cope with intermittent downlinks~\cite{ref:fedavg,ref:razmi2022,ref:matthiesen2024}. The second generation moved aggregation into the constellation: FedMega~\cite{ref:fedmega2024} introduced ring all-reduce over intra-orbit ISLs to cut ground-link dependence, while hierarchical FL frameworks further relayed orbit-level models via MEO/GEO relays~\cite{ref:wu2023onboard,ref:wang2023intraplane}. The third generation removed the ground server entirely: DFedSat~\cite{ref:dfedsat} combines intra-orbit reduce with inter-orbit gossip over dynamic ISLs, enabling fully serverless cross-orbit training. In parallel, the task scope has expanded from land-cover classification and ship detection toward denser perception tasks such as semantic segmentation~\cite{ref:fedseg2025} and personalized super-resolution~\cite{ref:alanine2024} — yet dense pixel-level cloud removal, which demands per-pixel regression under physical non-IID, remains entirely unaddressed.
+Federated learning (FL) provides a solution by letting each satellite
+train locally and share only model parameters~\cite{ref:fedavg}.
+Early satellite-FL work applied FedAvg directly to satellite--ground
+scenarios with visibility-aware scheduling. Subsequent work moved
+aggregation into the constellation: FedMega~\cite{ref:fedmega2024}
+introduced ring all-reduce over intra-orbit ISLs to cut ground-link
+dependence, and DFedSat~\cite{ref:dfedsat} further removed the ground
+server by combining intra-orbit reduce with inter-orbit gossip over
+dynamic ISLs. However, prior efforts have focused on classification
+and detection tasks; dense pixel-level cloud removal, which demands
+per-pixel regression under physical non-IID, remains unaddressed.
 
 % Dense cloud removal is more difficult because the model must reconstruct every pixel while preserving local texture, global color consistency,and cloud-boundary structure.
 
 Energy-efficient neural restoration is another necessary component
 for onboard deployment. Spiking neural networks (SNNs) are attractive
 because their event-driven computation can skip synaptic operations
-when no spike is emitted~\cite{ref:maass1997,ref:loihi}. Recent
-low-level vision work has explored SNNs for image restoration tasks
-such as deraining~\cite{ref:esdnet}. However, conventional binary
-spikes provide limited activation expressiveness, which is
-problematic for dense pixel-level regression. Aggressively reducing
-computation can degrade restoration quality, while preserving quality
-often requires deeper networks that weaken the energy advantage.
-Therefore, onboard cloud removal requires a co-design of the neuron
-activation, restoration backbone, and constellation-level aggregation
-protocol.
+when no spike is emitted~\cite{ref:loihi}. Recent low-level-vision
+work has explored SNNs for image restoration tasks such as
+deraining~\cite{ref:esdnet}. However, conventional binary spikes
+provide limited activation expressiveness, which is problematic for
+dense pixel-level regression. Aggressively reducing computation
+degrades restoration quality, while preserving quality often requires
+deeper networks that weaken the energy advantage. Therefore, onboard
+cloud removal requires a co-design of the neuron activation,
+restoration backbone, and constellation-level aggregation protocol.
 
 Despite progress in cloud removal, satellite FL, and SNN-based
 efficient inference, onboard federated cloud removal remains largely
@@ -167,17 +180,20 @@ of our knowledge, this is the first work to go beyond classification
 tasks and combine onboard SNN inference with cross-orbit federated
 training for a low-level vision task such as cloud removal. 
 
-\item We design a novel lightweight SNN backbone which analyze cloud-contaminated
-imagery jointly across multiple domains of temporal,
-spectral, and spatial to extract multi-dimensional fea-
-ture representations. It comprises four specific modules and the complete
-model contains only $2.30$\,M parameters.
+\item We design a lightweight SNN backbone that analyses
+cloud-contaminated imagery jointly across temporal, spectral, and
+spatial domains to extract multi-dimensional feature representations.
+The backbone comprises four dedicated modules and contains only
+$2.30$\,M parameters.
 
-\item We evaluate ORBITALIF on the public CUHK-CR cloud-
-removal benchmark and a 5×10 Walker-Star constel-
-lation . Under hierarchical inter-satellite links,
-the federated ORBITALIF achieves performance com-
-parable to an ANNUnet model of the same architecture with 72.3x reduce of energy. Under source-level Dirichlet heterogeneity with $\alpha\!=\!0.1$ and 0.01, our model is confirmed to be robust under extreme non-IID conditions,demonstrating the promise of such model.
+\item We evaluate \OrbitALIF{} on the public CUHK-CR cloud-removal
+benchmark over a $5{\times}10$ Walker-Star constellation. Under
+intra-plane ring all-reduce and inter-plane chain-Gossip with
+plane-local BN, the federated \OrbitALIF{} attains restoration
+quality comparable to an ANN U-Net of the same architecture while
+reducing per-image inference energy by $72.3\times$. Under
+source-level Dirichlet heterogeneity at $\alpha\!\in\!\{0.1,0.01\}$,
+the framework remains robust to extreme non-IID conditions.
 \end{itemize}
 
 
@@ -190,15 +206,25 @@ parable to an ANNUnet model of the same architecture with 72.3x reduce of energy
 
 In this work, we consider a constellation consisting of $N$ orbital planes, each containing $K$ satellites. We denote the $j$-th satellite within the $i$-th orbital plane by $s_{i,j}$. Satellites are assumed to communicate with one another via inter-satellite links (ISLs). Specifically, two decision metrics are introduced to determine whether a pair of satellites can establish communication: line-of-sight (LoS) visibility and Doppler reliability, which are elaborated as follows:
 \begin{itemize}
-    \item  LoS visibility: For arbitrary satellite pair $s_{i_1,j_1}$ and $s_{i_2,j_2}$ (hereafter $s_1$ and $s_2$ if no ambiguity arises.) at altitude of $h_1$ and $h_2$. Their horizon half-angle $\rho_1,\rho_2$ is defined by $\rho_k = \arccos\left(\frac{r_E}{r_E + h_k}\right), k\in\{1,2\}$, which defines the cone within which it can see other satellites. Furthermore, denote their latitude by  $\theta_{1}^{v},\theta_{2}^{v}$ and longitude by $\theta_{1}^{h},\theta_{2}^{h}$, the geocentric angle can be written by:
+    \item \emph{LoS visibility.} Consider an arbitrary satellite pair
+    $s_{i_1,j_1},s_{i_2,j_2}$ (hereafter $s_1,s_2$) at altitudes
+    $h_1,h_2$. Each satellite's horizon half-angle is
+    $\rho_k = \arccos\!\bigl(r_E / (r_E + h_k)\bigr)$, $k\in\{1,2\}$,
+    where $r_E$ is the Earth radius. Letting
+    $(\theta_k^{v},\theta_k^{h})$ denote the latitude and longitude
+    of $s_k$, the geocentric angle between the two satellites is
     \begin{equation*}
-          \varphi = \arccos\big[\sin\theta_{1}^{v} \sin\theta_{2}^{v} + \cos\theta_{1}^{v} \cos\theta_{2}^{v} \cos(\theta_{1}^{h} - \theta_{2}^{h})\big].  
+        \varphi = \arccos\!\bigl[\sin\theta_{1}^{v}\sin\theta_{2}^{v}
+        + \cos\theta_{1}^{v}\cos\theta_{2}^{v}\cos(\theta_{1}^{h} - \theta_{2}^{h})\bigr].
     \end{equation*}
-The two satellites are mutually LoS visible if and only if their geocentric angle does not exceed the sum of their individual horizon half-angle, i.e.,
-$\varphi \leq\rho_1 + \rho_2$.
-\item Doppler reliability: The Doppler shift captures the dynamic aspect of ISL reliability — even if two satellites have a clear line of sight, a high relative velocity can render the link unusable. The Doppler shift between satellites $s_1$ and $s_2$ is given by
-$f_d = \frac{\psi\cdot f_c}{c}$,
-where $\psi$ is the relative speed between the two satellites, $f_c$ is the carrier frequency, and $c$ is the speed of light. The two satellites are Doppler reliable if and only if this shift is stay within the tolerable threshold $f_{\max}$, i.e.,$f_d \leq f_{\max}$.
+    The two satellites are mutually LoS-visible if and only if
+    $\varphi \leq \rho_1 + \rho_2$.
+\item \emph{Doppler reliability.} Even with a clear line of sight,
+    a high relative velocity can render an ISL unusable. The Doppler
+    shift between $s_1,s_2$ is $f_d = \psi f_c / c$, where $\psi$ is
+    the relative radial speed, $f_c$ the carrier frequency, and $c$
+    the speed of light. The two satellites are Doppler-reliable if
+    $f_d \leq f_{\max}$ for a tolerable threshold $f_{\max}$.
 \end{itemize}
 
 Once both metrics are satisfied, the satellite pair is deemed a credible pair. Upon the formation of a credible pair, information can be successfully transmitted between the two satellites.
@@ -212,25 +238,68 @@ Assume each satellite $s_{i,j}$ holds a local dataset $\mathcal{D}_{i,j}$, all s
 & f_{i,j}(\mathbf{x}) = \frac{1}{|\mathcal{D}_{i,j}|} \sum_{\mathbf{z} \in \mathcal{D}_{i,j}} \ell(\mathbf{x}; \mathbf{z}),
 \end{aligned}
 \end{equation*}
-where $\mathbf{x}$ denotes the model parameters and $\ell(\cdot; \mathbf{z})$ is the loss on sample $\mathbf{z}$.
-The learning procedure at each global iteration $t$ proceeds in four steps:
-Step 1 — Model Distribution. At the beginning of iteration $t$, each orbital plane $i$ has a local model copy $\mathbf{x}_i^t$. Within each plane, satellites perform an intra-plane broadcast via the stable ring topology: the satellite that participated in the previous inter-plane aggregation disseminates the model $\mathbf{x}_i^t$ to all other satellites $s_{i,j}$ in the same orbit using the reliable intra-plane ISLs. After this step, every satellite holds $\mathbf{x}_i^t$ as its initial model for the current round.
-Step 2 — Local Training. Each satellite $s_{i,j}$ performs local stochastic gradient descent (SGD) on its own dataset $\mathcal{D}_{i,j}$ for $E$ local epochs:
+where $\mathbf{x}$ denotes the model parameters and
+$\ell(\cdot;\mathbf{z})$ is the loss on sample $\mathbf{z}$. We
+partition the parameter vector into a \emph{shared} component
+$\mathbf{x}^{\mathrm{sh}}$ (convolutional weights, learnable scalars,
+frequency-MLP weights) and a \emph{local} component
+$\mathbf{x}^{\mathrm{bn}}$ (batch-normalization affine parameters and
+running statistics, including the threshold-dependent BN of the
+spiking blocks). Each global round $t$ proceeds in four steps.
+
+\emph{Step 1 -- Model distribution.} At the start of round $t$, the
+$K$ satellites in plane $i$ share an identical plane model
+$\mathbf{x}_i^t$, established at the end of round $t-1$ and
+disseminated within the plane via the stable intra-plane ring.
+
+\emph{Step 2 -- Local training.} Each satellite $s_{i,j}$ performs
+local stochastic gradient descent (SGD) on $\mathcal{D}_{i,j}$ for
+$E$ local steps,
 \begin{equation*}
-\mathbf{x}_{i,j}^{t+\frac{1}{2}} = \mathbf{x}_i^t - \eta \sum_{e=0}^{E-1} \nabla F_{i,j}(\mathbf{x}_{i,j}^{t,e}),
+\mathbf{x}_{i,j}^{t+\frac{1}{2}} = \mathbf{x}_i^t - \eta \sum_{e=0}^{E-1} \nabla F_{i,j}\bigl(\mathbf{x}_{i,j}^{t,e}\bigr),
 \end{equation*}
-where $\eta$ is the learning rate, $\nabla F_{i,j}(\cdot)$ denotes the stochastic gradient, and $\mathbf{x}_{i,j}^{t,e}$ represents the model after $e$ local steps.
-Step 3 — Intra-Plane Model Aggregation (Ring All-Reduce). Since satellites within the same orbital plane move in the same direction at nearly constant velocities, their relative positions are stable and the intra-plane ISLs form a natural ring topology. This allows efficient ring all-reduce for intra-plane aggregation. Specifically, the $K$ satellites in orbit $i$ organize as a logical ring; each satellite sends its local update to its successor and receives an update from its predecessor. After $\mathcal{O}(K)$ communication rounds, every satellite in the plane obtains the exact average of all local models within that orbit:
+where $\eta$ is the learning rate, $\nabla F_{i,j}$ a stochastic
+gradient, and $\mathbf{x}_{i,j}^{t,e}$ the model after $e$ local
+steps.
+
+\emph{Step 3 -- Intra-plane aggregation (ring all-reduce).} Because
+satellites within the same orbital plane move in the same direction
+at nearly constant velocities, the intra-plane ISLs form a stable
+logical ring. After $\mathcal{O}(K)$ communication rounds, every
+satellite obtains the exact average of all local models within the
+plane,
 \begin{equation*}
-\mathbf{x}_i^{t+\frac{1}{2}} = \frac{1}{K} \sum_{j=1}^{K} \mathbf{x}_{i,j}^{t+\frac{1}{2}}, \quad \forall i \in \{1, \dots, N\}.
+\mathbf{x}_i^{t+\frac{1}{2}} = \frac{1}{K}\sum_{j=1}^{K} \mathbf{x}_{i,j}^{t+\frac{1}{2}}, \quad \forall i\in\{1,\dots,N\}.
 \end{equation*}
-At this point, each orbit $i$ has a unified intra-plane model $\mathbf{x}_i^{t+\frac{1}{2}}$.
-Step 4 — Inter-Plane Model Aggregation (Gossip Averaging). Unlike the stable intra-plane ring topology, inter-plane ISLs are unstable due to varying inclinations, altitudes, and relative velocities. Global aggregation across all $N$ orbits in a single round is impractical. Instead, a gossip averaging scheme is adopted: each orbital plane $i$ only communicates with its immediate neighbors on a pre-defined inter-plane connectivity graph $\mathcal{G} = (\mathcal{V}, \mathcal{E})$, where $\mathcal{V} = \{1, \dots, N\}$ and $e_{i,i'} \in \mathcal{E}$ only if there exists at least one credible pair between orbits $i$ and $i'$ (i.e., satisfying both LoS visibility and Doppler reliability constraints).
-In each gossip round, orbit $i$ exchanges its model $\mathbf{x}_i^{t+\frac{1}{2}}$ with its neighbors $\mathcal{N}(i) = \{i' \mid e_{i,i'} \in \mathcal{E}\}$ and updates:
+Same-plane satellites observe a similar climatology slice, so this
+average is applied to \emph{all} parameters, including
+$\mathbf{x}^{\mathrm{bn}}$.
+
+\emph{Step 4 -- Inter-plane aggregation (chain-Gossip with
+plane-local BN).} Inter-plane ISLs are unstable owing to varying
+inclinations, altitudes, and relative velocities, making
+single-round global aggregation impractical. Instead, each plane
+$i$ communicates only with its immediate neighbours on a pre-defined
+connectivity graph $\mathcal{G} = (\mathcal{V},\mathcal{E})$, where
+$\mathcal{V} = \{1,\dots,N\}$ and an edge $e_{i,i'}\in\mathcal{E}$
+exists only if at least one credible pair (satisfying both LoS and
+Doppler constraints of Section~\ref{sec:sysmodel-setup}) links
+orbits $i$ and $i'$. Letting
+$\mathcal{N}(i) = \{i' \mid e_{i,i'}\in\mathcal{E}\}$ denote the
+neighbour set, the shared parameters undergo an equal-weight average
+over plane $i$ together with its neighbours,
 \begin{equation*}
-\mathbf{x}_i^{t+1} = (1 - \alpha) \mathbf{x}_i^{t+\frac{1}{2}} + \alpha \cdot \frac{1}{|\mathcal{N}(i)|} \sum_{i' \in \mathcal{N}(i)} \mathbf{x}_{i'}^{t+\frac{1}{2}}
+\mathbf{x}_i^{\mathrm{sh},\,t+1} = \frac{1}{|\mathcal{N}(i)|+1}\Biggl(\mathbf{x}_i^{\mathrm{sh},\,t+\frac{1}{2}} + \sum_{i'\in\mathcal{N}(i)}\mathbf{x}_{i'}^{\mathrm{sh},\,t+\frac{1}{2}}\Biggr),
 \end{equation*}
-where $\alpha \in (0, 1)$ is the gossip mixing weight. Through repeated gossip rounds across iterations, model information gradually diffuses across the entire constellation, reaching consensus over time. This avoids the high communication overhead of global aggregation while remaining robust to the intermittent nature of inter-plane ISLs.
+while the BN component is excluded from the inter-plane mean and
+retained from the plane's own pre-aggregation snapshot,
+$\mathbf{x}_i^{\mathrm{bn},\,t+1} = \mathbf{x}_i^{\mathrm{bn},\,t+\frac{1}{2}}$,
+following the FedBN principle. Through repeated rounds, shared
+parameters diffuse across the constellation and reach consensus,
+while normalization statistics remain adapted to each plane's
+climatology. This avoids the high communication overhead of global
+aggregation and is robust to the intermittent nature of inter-plane
+ISLs.
 
 
 % =====================================================================
@@ -238,14 +307,35 @@ where $\alpha \in (0, 1)$ is the gossip mixing weight. Through repeated gossip r
 % =====================================================================
 \section{The \OrbitALIF{} Framework}\label{sec:framework}
 
+\begin{figure*}[!t]
+  \centering
+  \includegraphics[width=\textwidth]{fig_archi.png}
+  \caption{Overview of \OrbitALIF{}. \textbf{Top-left:} single-satellite
+  U-shaped backbone ($T\!=\!4$, $2.30$\,M parameters); stage~1 uses
+  \SSHB{}, deeper stages stack \DFRB{} with embedded \SHAM{}
+  attention, skip connections pass through \AGFM{} gates, and a global
+  residual reconstructs the cloud-free image. \textbf{Top-right:} one
+  global round in the life of satellite $s_{1,3}$ -- local SGD (S1),
+  intra-plane mean over the $K\!=\!10$ sats including BN (S2),
+  inter-plane chain-Gossip on the shared (non-BN) parameters (S3),
+  and broadcast back to its 10 sats (S4). \textbf{Bottom:}
+  inter-plane chain-Gossip on a $5$-plane chain -- each plane equally
+  averages with its $1$--$2$ neighbours; BN parameters remain
+  plane-local (FedBN).}
+  \label{fig:archi}
+\end{figure*}
+
 % ---------------------------------------------------------------------
 \subsection{Design Principles and Architectural Overview}
 \label{sec:framework-overview}
 % ---------------------------------------------------------------------
 
-We use SNN model as the foundation and the most significant innovation in the architecture is
-multi-domain decomposition ,cloud iamge behave differently across pixel, Fourier,
-and time domains.
+We adopt an SNN model as the foundation; its principal architectural
+innovation is multi-domain decomposition: cloud-contaminated images
+behave very differently across the pixel, Fourier, and time domains.
+Figure~\ref{fig:archi} summarises the resulting backbone, the
+per-round protocol on a single satellite, and the inter-plane gossip
+mixing rule discussed below.
 
 %); \textbf{P2}~identity-preserving modulation (every
 %block is initialized as identity so training is stable from the start);
@@ -253,11 +343,12 @@ and time domains.
 %open only when training finds them useful).
 
 
-\textbf{Multi-domain decomposition.} Cloud artefacts behave
-differently across representations: smooth blobs in the pixel domain,
-mid-band concentration in the Fourier amplitude spectrum, and slow
-variation along the spike time axis. Each module therefore decomposes
-its input in its own native domain and fuses the components downstream.
+\noindent\textbf{Multi-domain decomposition.} Cloud artefacts behave
+differently across representations: smooth blobs in the pixel
+domain, mid-band concentration in the Fourier amplitude spectrum,
+and slow variation along the spike-time axis. Each module therefore
+decomposes its input in its native domain and fuses the components
+downstream.
 
 
 %\textbf{P2~(Identity-preserving modulation).} Every modulation block
@@ -273,11 +364,14 @@ its input in its own native domain and fuses the components downstream.
 
 The backbone is a three-stage U-Net. The input cloudy image
 $\mathbf{c}\in\mathbb{R}^{3\times H\times W}$, where $H$ and $W$ are
-the tile height and width in pixels, is embedded and replicated along a
-synthetic time axis ($T\!=\!4$ steps). Stage~1 (highest resolution)
-gets spectral and spatial information in both encoder and decoder,which is called SHAM; Stages~2 and~3
-stack dual-frequency residual blocks with embedded \SHAM{} attention. Each skip
-connection passes through an adaptive gate fusion module called AGFM before entering the decoder.
+the tile height and width in pixels, is patch-embedded and replicated
+along a synthetic time axis of $T\!=\!4$ steps. Stage~1 (highest
+resolution) uses the spectro-temporal spike hyper-block (\SSHB{})
+that processes spectral and spatial information jointly in both
+encoder and decoder; stages~2 and~3 stack dual-frequency residual
+blocks (\DFRB{}) with embedded spectral--spatial hybrid attention
+(\SHAM{}). Each skip connection passes through an adaptive gated
+fusion module (\AGFM{}) before entering the decoder.
 The final prediction is
 \begin{equation}
     \hat{\mathbf{y}} \;=\; \mathbf{c} \;+\;
@@ -324,31 +418,27 @@ cloud correction rather than the full image.
 \label{sec:framework-neuron}
 % ---------------------------------------------------------------------
 
-A binary LIF spike carries one bit information per step, forcing prior coding
-schemes~\cite{ref:rueckauer2017,ref:kim2022burst} to use larger
-steps to match ANN accuracy, but it is too costly for onboard deployment.
-Deeper SNN restoration networks recover quality but erode the energy
-advantage~\cite{ref:esdnet}. Extending the
-output alphabet to five levels
-$\{0,\tfrac{1}{4},\tfrac{1}{2},\tfrac{3}{4},1\}$, packing more
-information into each spike so comparable quality is achieved at
-$T\!=\!4$. This is called \FQS-LIF{}.The membrane update and spike output are
+A binary LIF spike carries only one bit of information per step;
+matching ANN accuracy therefore requires either many time steps,
+which is too costly for onboard deployment, or deeper SNN restoration
+networks that erode the energy advantage~\cite{ref:esdnet}. We
+instead extend the output alphabet to five levels
+$\mathcal{S} = \{0,\tfrac{1}{4},\tfrac{1}{2},\tfrac{3}{4},1\}$,
+packing more information into each spike so that comparable quality
+is achieved at $T\!=\!4$. We call this neuron \FQS-LIF{}. Its
+membrane update and spike output are
 \begin{equation}
-    u[t] \;=\; \bigl(u[t{-}1] - s[t{-}1]\bigr)\cdot\eta
-              \;+\; \mathbf{W}\mathbf{x}[t], \qquad
-%    s[t] \;=\; \frac{\mathrm{round}\!\bigl(
- %              \mathrm{clamp}(u[t],\,0,\,4)\bigr)}{4},
+    u[t] = \bigl(u[t{-}1] - s[t{-}1]\bigr)\eta + \mathbf{W}\mathbf{x}[t], \quad
+    s[t] = \tfrac{1}{4}\,\mathrm{round}\!\bigl(\mathrm{clamp}(u[t],0,4)\bigr),
     \label{eq:5qs}
 \end{equation}
 where $u[t]\in\mathbb{R}$ is the membrane potential at step $t$,
-$s[t{-}1]\in\{0,\tfrac{1}{4},\tfrac{1}{2},\tfrac{3}{4},1\}$ is the
-spike output from the previous step, $\eta\!$ is the leak factor
-controlling how fast the membrane decays between steps, $\mathbf{W}$ is
-the synaptic weight matrix, and $\mathbf{x}[t]$ is the pre-synaptic
-input at step $t$. The soft reset subtracts $s[t{-}1]$ rather than a
-fixed threshold, carrying residual charge into the next step. Synaptic
-operations are skipped when $s[t]\!=\!0$, preserving event-driven
-sparsity. 
+$s[t{-}1]\in\mathcal{S}$ the spike output from the previous step,
+$\eta\in(0,1)$ the leak factor, $\mathbf{W}$ the synaptic weight
+matrix, and $\mathbf{x}[t]$ the pre-synaptic input. The soft reset
+subtracts $s[t{-}1]$ rather than a fixed threshold, carrying residual
+charge into the next step. Synaptic operations are skipped when
+$s[t]\!=\!0$, preserving event-driven sparsity.
 
 % ---------------------------------------------------------------------
 \subsection{Block Scale: DFRB and SHAM}
@@ -368,9 +458,10 @@ residual retains the low-frequency complement. The temporal split gives
     \label{eq:dfrb-split1}
 \end{equation}
 where $\mathbf{x}\in\mathbb{R}^{T\times C\times H\times W}$ is the
-input feature tensor, $\mathbf{x}_h^{(1)}$ is the high-frequency spike
-component, and $\mathbf{x}_l^{(1)}$ is the low-frequency residual. In spatial domain,
-$\mathbf{x}_h^{(2)}$ and $\mathbf{x}_l^{(2)}$ are yeilding at reduced spatial
+input feature tensor, $\mathbf{x}_h^{(1)}$ is the high-frequency
+spike component, and $\mathbf{x}_l^{(1)}$ is the low-frequency
+residual. A second branch produces the analogous pair
+$\mathbf{x}_h^{(2)},\mathbf{x}_l^{(2)}$ at reduced spatial
 resolution. The two high-frequency components are coupled by a
 cross-scale gate,
 \begin{equation}
@@ -378,14 +469,16 @@ cross-scale gate,
     \sigma(\gamma)\cdot\mathbf{x}_h^{(1)}\odot\mathbf{x}_h^{(2)},
     \label{eq:dfrb-gate}
 \end{equation}
-where $\gamma\in\mathbb{R}$ is a learnable scalar initialized to zero
-, $\sigma(\cdot)$ is the sigmoid function, and $\odot$ denotes
-element-wise multiplication. Learnable parameter will be applied
-to each branch before the final summation.
+where $\gamma\in\mathbb{R}$ is a learnable scalar initialized to
+zero, $\sigma(\cdot)$ is the sigmoid function, and $\odot$ denotes
+element-wise multiplication. A learnable per-branch scalar is then
+applied before the final summation, so each block starts as an
+identity and only opens cross-scale coupling when training finds it
+useful.
 
-\noindent\textbf{Spectral-Spatial Hybrid Attention Module (\SHAM{}).}
-Following the design in\cite{ref:fstasnn2025}, this module extends
-temporal attention with a 2-D spatial frequency branch, applied in
+\noindent\textbf{Spectral--Spatial Hybrid Attention Module (\SHAM{}).}
+Following the design in~\cite{ref:fstasnn2025}, this module extends
+temporal attention with a 2-D spatial-frequency branch, applied in
 series. The temporal branch produces a per-step gate
 $\mathbf{g}_t\in\mathbb{R}^T$ by mixing average- and max-pooled spatial
 statistics with learnable scalars $\alpha$ and $\beta$ through a
@@ -415,12 +508,17 @@ module starts as an identity.
 % ---------------------------------------------------------------------
 
 \noindent\textbf{Adaptive Gated Fusion Module (\AGFM{}).}
-Standard U-Net connect encoder and decoder 
-features directly. To avoid inconsistent feature aggregating.\AGFM{} introduces a learnable parameter as gate.
+Standard U-Nets concatenate encoder and decoder features directly,
+which can cause inconsistent fusion when the two paths encode
+different cloud--surface mixtures. \AGFM{} replaces the
+concatenation with a learnable scalar gate per skip connection,
+initialized so that the encoder branch dominates at training start;
+the gate gradually opens as training discovers useful decoder
+information.
+
 \noindent\textbf{Spectro-Temporal Spike Hyper-Block (\SSHB{}).}
 Stage~1 operates at full $H{\times}W$ resolution and dominates the
-compute budget. So we reduce spatial cost by trading pixels for time
-steps ,
+compute budget, so we trade pixels for time steps,
 \begin{equation}
     [T,\,C,\,H,\,W]
     \;\xrightarrow{\mathrm{reshape}}\;
@@ -509,11 +607,11 @@ $5{\times}10$ Walker-Star constellation as described in
 Section~\ref{sec:sysmodel}.
 
 \noindent\textbf{Energy measurement.}
-Per-layer forward hooks record MAC count and
-input non-zero rate.ANN energy uses
-$4.6$\,pJ/MAC (Horowitz, 45\,nm CMOS~\cite{ref:horowitz}); SNN
-energy uses $77$\,fJ/SOP for neuromorphic substrates
-(Loihi-2~\cite{ref:loihi}), consistent
+Per-layer forward hooks record MAC count and input non-zero rate.
+ANN energy is charged at $4.6$\,pJ/MAC (Horowitz, $45$\,nm
+CMOS~\cite{ref:horowitz2014}); SNN energy is charged at
+$77$\,fJ/SOP for neuromorphic substrates such as
+Loihi-2~\cite{ref:loihi}, consistent
 with~\cite{ref:flsnn,ref:esdnet}.
 
 % ---------------------------------------------------------------------
@@ -769,98 +867,29 @@ power on Loihi-2, Speck, or Akida substrates.
 
 
 
-\begin{thebibliography}{99}
+\begin{thebibliography}{16}
 
-\bibitem{ref:earthobs1}
-X.~X.~Zhu, D.~Tuia, L.~Mou, G.-S.~Xia, L.~Zhang, F.~Xu, and
-F.~Fraundorfer,
-``Deep learning in remote sensing: A comprehensive review and list of
-resources,''
-\emph{IEEE Geosci.\ Remote Sens.\ Mag.}, vol.~5, no.~4, pp.~8--36,
-Dec.\ 2017.
+% --- ordered by first appearance in the body ---
 
 \bibitem{ref:earthobs2}
 S.~Voigt \emph{et~al.},
 ``Global trends in satellite-based emergency mapping,''
 \emph{Science}, vol.~353, no.~6296, pp.~247--252, Jul.\ 2016.
 
+\bibitem{ref:earthobs1}
+X.~X.~Zhu, D.~Tuia, L.~Mou, G.-S.~Xia, L.~Zhang, F.~Xu, and
+F.~Fraundorfer,
+``Deep learning in remote sensing: A comprehensive review and list
+of resources,''
+\emph{IEEE Geosci.\ Remote Sens.\ Mag.}, vol.~5, no.~4, pp.~8--36,
+Dec.\ 2017.
 
-\bibitem{ref:onboardfl-bottleneck}
-P.~Gomez \emph{et~al.},
-``Tackling the satellite downlink bottleneck with federated onboard
-learning of image compression,''
-\emph{Proc.\ IEEE/CVF Conf.\ Comput.\ Vis.\ Pattern Recognit.\
-Workshops (CVPRW)}, 2024.
-
-
-\bibitem{ref:spacecpn1}
-J.~Liu, Y.~Shi, Z.~M.~Fadlullah, and N.~Kato,
-``Space-air-ground integrated network: A survey,''
-\emph{IEEE Commun.\ Surveys Tuts.}, vol.~20, no.~4, pp.~2714--2741,
-4th Quart.\ 2018.
-
-\bibitem{ref:cuhkcr}
-Y.~Sui \emph{et~al.},
-``Diffusion enhancement for cloud removal in ultra-resolution remote
-sensing imagery,''
-\emph{IEEE Trans.\ Geosci.\ Remote Sens.}, 2024.
-% arXiv:2401.15105
-
-\bibitem{ref:maass1997}
-W.~Maass,
-``Networks of spiking neurons: The third generation of neural network
-models,''
-\emph{Neural Networks}, vol.~10, no.~9, pp.~1659--1671, 1997.
-
-\bibitem{ref:loihi}
-M.~Davies \emph{et~al.},
-``Loihi: A neuromorphic manycore processor with on-chip learning,''
-\emph{IEEE Micro}, vol.~38, no.~1, pp.~82--99, Jan./Feb.\ 2018.
-
-\bibitem{ref:esdnet}
-H.~Song \emph{et~al.},
-``Exploring the potentials of spiking neural networks for image
-deraining,''
-\emph{arXiv preprint arXiv:2207.02094}, 2022.
-
-\bibitem{ref:flsnn}
-P.~Yang, T.~Wang, \emph{et~al.},
-``Brain-inspired decentralized satellite learning in space computing
-power networks,''
-\emph{arXiv preprint arXiv:2501.15995}, 2025.
-
-\bibitem{ref:fedavg}
-H.~B.~McMahan, E.~Moore, D.~Ramage, S.~Hampson, and B.~A.~y~Arcas,
-``Communication-efficient learning of deep networks from decentralized
-data,''
-\emph{Proc.\ Int.\ Conf.\ Artif.\ Intell.\ Statist.\ (AISTATS)}, 2017.
-
-\bibitem{ref:fedbn}
-X.~Li, M.~Jiang, X.~Zhang, M.~Kamp, and Q.~Dou,
-``FedBN: Federated learning on non-IID features via local batch
-normalization,''
-\emph{Proc.\ Int.\ Conf.\ Learn.\ Represent.\ (ICLR)}, 2021.
-
-\bibitem{ref:gossip-boyd}
-S.~Boyd, A.~Ghosh, B.~Prabhakar, and D.~Shah,
-``Randomized gossip algorithms,''
-\emph{IEEE Trans.\ Inf.\ Theory}, vol.~52, no.~6, pp.~2508--2530,
-Jun.\ 2006.
-
-\bibitem{ref:hsu2019}
-T.-M.~H.~Hsu, H.~Qi, and M.~Brown,
-``Measuring the effects of non-identical data distribution for
-federated visual classification,''
-\emph{arXiv preprint arXiv:1909.06335}, 2019.
-
-
-\bibitem{ref:king2013cloud}
-M.~D.~King, S.~Platnick, W.~P.~Menzel, S.~A.~Ackerman, and
-P.~A.~Hubanks,
-``Spatial and temporal distribution of clouds observed by MODIS
-onboard the Terra and Aqua satellites,''
-\emph{IEEE Trans.\ Geosci.\ Remote Sens.}, vol.~51, no.~7,
-pp.~3826--3852, Jul.\ 2013.
+\bibitem{ref:meraner2020}
+A.~Meraner, P.~Ebel, X.~X.~Zhu, and M.~Schmitt,
+``Cloud removal in Sentinel-2 imagery using a deep residual neural
+network and SAR-optical data fusion,''
+\emph{ISPRS J.\ Photogramm.\ Remote Sens.}, vol.~166, pp.~333--346,
+Aug.\ 2020.
 
 \bibitem{ref:ebel2021multisensor}
 P.~Ebel, A.~Meraner, M.~Schmitt, and X.~X.~Zhu,
@@ -869,10 +898,64 @@ Sentinel-2 imagery,''
 \emph{IEEE Trans.\ Geosci.\ Remote Sens.}, vol.~59, no.~7,
 pp.~5866--5878, Jul.\ 2021.
 
+\bibitem{ref:cuhkcr}
+Y.~Sui, M.~Cheng, W.~Wang, Y.~Yang, and L.~Yu,
+``Diffusion enhancement for cloud removal in ultra-resolution
+remote-sensing imagery,''
+\emph{IEEE Trans.\ Geosci.\ Remote Sens.}, vol.~62, 2024.
+
+\bibitem{ref:spacecpn1}
+J.~Liu, Y.~Shi, Z.~M.~Fadlullah, and N.~Kato,
+``Space-air-ground integrated network: A survey,''
+\emph{IEEE Commun.\ Surveys Tuts.}, vol.~20, no.~4, pp.~2714--2741,
+4th~Quart.\ 2018.
+
 \bibitem{ref:walker1984}
 J.~G.~Walker,
 ``Satellite constellations,''
 \emph{J.\ Brit.\ Interplanetary Soc.}, vol.~37, pp.~559--572, 1984.
+
+\bibitem{ref:fedavg}
+H.~B.~McMahan, E.~Moore, D.~Ramage, S.~Hampson, and B.~A.~y~Arcas,
+``Communication-efficient learning of deep networks from
+decentralized data,''
+\emph{Proc.\ Int.\ Conf.\ Artif.\ Intell.\ Statist.\ (AISTATS)},
+2017.
+
+\bibitem{ref:fedmega2024}
+Y.~Wang \emph{et~al.},
+``FedMega: Communication-efficient orbit-aware federated learning
+for satellite networks,''
+\emph{IEEE J.\ Sel.\ Areas Commun.}, 2024.
+
+\bibitem{ref:dfedsat}
+M.~Wu, Y.~Hu, X.~Hou, and X.~Wang,
+``DFedSat: Decentralized federated learning for low-Earth-orbit
+satellite constellations,''
+\emph{arXiv preprint arXiv:2407.05027}, 2024.
+
+\bibitem{ref:loihi}
+M.~Davies \emph{et~al.},
+``Loihi: A neuromorphic manycore processor with on-chip learning,''
+\emph{IEEE Micro}, vol.~38, no.~1, pp.~82--99, Jan./Feb.\ 2018.
+
+\bibitem{ref:esdnet}
+H.~Song, M.~Cai, Y.~Cao, and Y.~Xu,
+``Exploring the potentials of spiking neural networks for image
+deraining,''
+\emph{arXiv preprint arXiv:2207.02094}, 2022.
+
+\bibitem{ref:fstasnn2025}
+K.~Lai \emph{et~al.},
+``FSTA-SNN: Frequency-based spatial--temporal attention for spiking
+neural networks,''
+\emph{Proc.\ AAAI Conf.\ Artif.\ Intell.}, 2025.
+
+\bibitem{ref:darkir2024}
+D.~Feijoo \emph{et~al.},
+``DarkIR: Robust low-light image restoration,''
+\emph{Proc.\ IEEE/CVF Conf.\ Comput.\ Vis.\ Pattern Recognit.\
+(CVPR)}, 2025.
 
 \bibitem{ref:horowitz2014}
 M.~Horowitz,
@@ -880,24 +963,11 @@ M.~Horowitz,
 \emph{IEEE Int.\ Solid-State Circuits Conf.\ (ISSCC) Dig.\ Tech.\
 Papers}, pp.~10--14, Feb.\ 2014.
 
-
-\bibitem{ref:rueckauer2017}
-B.~Rueckauer, I.-A.~Lungu, Y.~Hu, M.~Pfeiffer, and S.-C.~Liu,
-``Conversion of continuous-valued deep networks to efficient
-event-driven networks for image classification,''
-\emph{Frontiers Neurosci.}, vol.~11, p.~682, Dec.\ 2017.
-
-\bibitem{ref:fstasnn2025}
-[Authors],
-``FSTA-SNN: Frequency-based spatial-temporal attention for spiking
-neural networks,''
-\emph{Proc.\ AAAI Conf.\ Artif.\ Intell.}, 2025.
-
-\bibitem{ref:darkir2024}
-[Authors],
-``DarkIR: Robust low-light image restoration,''
-\emph{Proc.\ IEEE/CVF Conf.\ Comput.\ Vis.\ Pattern Recognit.\
-(CVPR)}, 2025.
+\bibitem{ref:flsnn}
+P.~Yang, T.~Wang \emph{et~al.},
+``Brain-inspired decentralized satellite learning in space
+computing-power networks,''
+\emph{arXiv preprint arXiv:2501.15995}, 2025.
 
 \end{thebibliography}
 

@@ -383,9 +383,13 @@ def _setup_mpl() -> None:
 
 
 def _save_pdf(fig, out_path: Path) -> None:
-    """Vector PDF write at 600 dpi (raster fallbacks crisp on print)."""
+    """Vector PDF write at 600 dpi (raster fallbacks crisp on print).
+
+    Also writes a sibling PNG at 300 dpi for quick previews / slide use.
+    """
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, format="pdf", dpi=600)
+    fig.savefig(out_path.with_suffix(".png"), format="png", dpi=300)
     _log(f"wrote {out_path}")
 
 
@@ -978,29 +982,6 @@ def fig5_federated_curves(args, out_dir: Path) -> None:
         plt.close(fig)
         return
 
-    # Centralised baseline reference line — read PSNR_best from A1+A2
-    # and C2 summaries on disk, take the max across both Models for
-    # the joint-test "centralised upper bound".  Also draw a second
-    # dashed line for the PlainUNet centralised reference.  This
-    # gives Fig 5's single-curve early version meaningful context
-    # while waiting for the full SNN/ANN/α data to fill in.
-    outputs_v1 = Path(args.outputs_v1)
-    centr_refs = []
-    for run_name, label in [(args.run_a1, "OrbitVLIF (cent.)"),
-                             (args.run_c2_cr1, "PlainUNet (cent.)")]:
-        s = load_centralized_summary(outputs_v1, run_name)
-        if s is None:
-            continue
-        psnr = (s.get("best") or {}).get("psnr")
-        if psnr is None or not np.isfinite(psnr):
-            continue
-        centr_refs.append((float(psnr), label))
-    for psnr, lbl in centr_refs:
-        ax.axhline(psnr, color=PALETTE_GRAY, linewidth=0.8,
-                   linestyle=":", alpha=0.55, zorder=0)
-        ax.text(ax.get_xlim()[1], psnr, f"  {lbl}: {psnr:.2f} dB",
-                fontsize=6.5, color=PALETTE_GRAY, va="center", ha="left")
-
     ax.legend(legend_handles, legend_labels, loc="lower right",
               ncol=1)
     ax.margins(x=0.02)
@@ -1015,8 +996,6 @@ def fig5_federated_curves(args, out_dir: Path) -> None:
         if y.size:
             ymins.append(y.min())
             ymaxs.append(y.max())
-    if centr_refs:
-        ymaxs.append(max(p for p, _ in centr_refs))
     if ymins and ymaxs:
         lo = min(ymins) - 0.4
         hi = max(ymaxs) + 0.4
