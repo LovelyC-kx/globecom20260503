@@ -1,0 +1,957 @@
+
+\documentclass[conference]{IEEEtran}
+
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{caption}
+\usepackage{xcolor}
+\hypersetup{
+  colorlinks   = true,
+  linkcolor    = blue,
+  citecolor    = blue,
+  urlcolor     = blue,
+}
+
+% --- Useful macros ---
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\D}{\mathcal{D}}
+\newcommand{\Dir}{\mathrm{Dir}}
+\newcommand{\OrbitALIF}{\textsc{OrbitALIF}}
+\newcommand{\FQS}{5QS}
+\newcommand{\DFRB}{\textsc{DFRB}}
+\newcommand{\SHAM}{\textsc{SHAM}}
+\newcommand{\AGFM}{\textsc{AGFM}}
+\newcommand{\SSHB}{\textsc{SSHB}}
+
+\graphicspath{{figures/}}
+
+\begin{document}
+
+% --- Title block ---
+\title{ORBITALIF: A Novel Onboard Cloud Removal\\
+       with Brain-Inspired Network}
+
+\author{
+  \IEEEauthorblockN{(1)}\\
+  \IEEEauthorblockA{(2)}
+}
+
+\maketitle
+
+% =====================================================================
+% Abstract
+% =====================================================================
+\begin{abstract}
+
+Optical low-earth-orbit (LEO) satellites collect large volumes of Earth imagery, but clouds often hide the surface and make the captured data unusable for time-sensitive applications such as disaster response. A conventional solution is to downlink cloudy images to ground stations and remove clouds on the ground. This pipeline, however, suffers from limited contact windows, constrained satellite-to-ground bandwidth, and hours-level latency. A more responsive solution is to perform cloud removal directly onboard the satellite constellation.
+
+Onboard cloud removal is difficult for two reasons. First, each satellite has only a limited power budget, making large artificial neural networks expensive to deploy. Second, satellites observe different regions and cloud conditions, but cannot upload all raw images to a central server for training. This requires a learning framework that is both energy-efficient and communication-aware.
+
+We present \OrbitALIF{}, the first end-to-end framework that performs
+both onboard training and onboard inference for optical cloud removal.
+A $2.30$\,M-parameter spiking neural network backbone is coupled with
+a FedBN-on-SNN aggregation protocol that runs over intra-plane ring
+AllReduce and inter-plane Gossip mixing. On CUHK-CR1, \OrbitALIF{}
+reaches $25.37$\,dB PSNR while reducing per-image inference energy
+from $20.75$\,mJ for an ANN baseline to $0.287$\,mJ on neuromorphic
+hardware, a $72.3$-fold reduction. It also stays within $0.81$\,dB
+of the strongest published cloud-removal model on this benchmark at
+a fraction of their parameter count. Under Dirichlet source
+heterogeneity of different $\alpha$, the architectural proves its robust.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Spiking neural networks, optical cloud removal, decentralized
+federated learning, onboard satellite computing.
+\end{IEEEkeywords}
+
+% =====================================================================
+% Section I: Introduction
+% =====================================================================
+\section{Introduction}\label{sec:intro}
+
+Low-earth-orbit optical satellites continuously image the
+Earth surface, but cloud contamination renders large fractions of
+each pass unusable: roughly $67\%$ of the Earth surface is
+cloud-covered at any given
+moment~\cite{ref:king2013cloud,ref:earthobs1}, and a substantial
+share of every acquired tile is
+discarded~\cite{ref:cuhkcr,ref:ebel2021multisensor}. Cloud removal
+recovers the underlying surface from a cloudy observation, a dense
+per-pixel regression task. Conventional pipelines downlink raw
+imagery during the few-minute contact windows and run cloud
+removal on the
+ground~\cite{ref:earthobs1,ref:onboardfl-bottleneck}, a long latency  that is incompatible with
+disaster-response decisions made in
+minutes~\cite{ref:earthobs2}.
+
+Moving cloud removal onboard removes the downlink and the latency,
+but the deployment must respect four constraints from the physics
+of LEO operation.
+
+\textbf{Power.} A LEO Earth-observation bus has $100$--$300$\,W
+total~\cite{ref:spacecpn1}, leaving tens of watts for compute after
+subsystems---far below ground-class ANN inference at hundreds of
+watts.
+
+\textbf{Link.} Inter-satellite link bandwidth is $10$--$100$\,Mbps,
+which is larger than satellite-ground link,and there are issues with visible windows and Doppler effects.
+
+\textbf{Topology.} Walker-Star connectivity is
+asymmetric~\cite{ref:walker1984}. Same-plane links are
+quasi-continuous, while links inter-plane are constrained.
+
+
+\textbf{Heterogeneity.} Different orbital planes observe different
+cloud climatologies and sensor drifts, so each satellite holds a
+source-level non-IID dataset distinct from the class-label
+imbalance studied in standard FL~\cite{ref:hsu2019}.
+
+No prior approach satisfies all four constraints jointly. A
+ground-trained ANN~\cite{ref:cuhkcr} costs $\sim\!4.5$\,GMACs per
+$64\!\times\!64$ patch, or $20.75$\,mJ at $4.6$\,pJ/MAC on $45$\,nm
+CMOS~\cite{ref:horowitz2014}, beyond the onboard envelope. Standard
+FedAvg~\cite{ref:fedavg} needs a ground-side server and reintroduces
+the downlink bottleneck. FLSNN~\cite{ref:flsnn} runs decentralized
+SNN training on a Walker-Star constellation but only for
+classification, leaving dense pixel regression, multi-scale texture
+recovery, and source-level non-IID open, and inference energy
+unoptimized. We instead co-design model, protocol, and task at once.
+
+We present \OrbitALIF{}, an end-to-end onboard federated
+cloud-removal framework for LEO optical satellite constellations.
+The framework is designed for a setting where each satellite observes
+cloudy/clear image pairs locally, cannot downlink all raw images to a
+ground server, and must perform both model training and cloud-removal
+inference under strict onboard power and communication constraints.
+Unlike conventional ground-side cloud-removal pipelines, \OrbitALIF{}
+moves the complete learning loop into the constellation: satellites
+train locally, exchange only model parameters over orbital links, and
+run a lightweight spiking restoration network for onboard inference.
+
+The main contributions are summarized as follows.
+
+
+\textbf{1) A spiking restoration backbone for energy-constrained
+onboard inference.}
+To make dense image restoration feasible under satellite power budgets,
+we design a $2.30$\,M-parameter spiking neural network backbone with only 15.6 OPs.
+The backbone combines five-level quantized spike activations with
+multi-domain feature modeling, including spatial/value decomposition,
+spectral-temporal attention, adaptive gated skip fusion, and a
+spectro-temporal hyper-block. This design preserves sparse
+event-driven computation while providing sufficient representation
+capacity for pixel-level cloud removal.
+
+\textbf{2) A topology-aware FedBN-on-SNN training solution.}
+To handle source-level heterogeneity across orbital planes, we adapt
+\textsc{FedBN} to the spiking restoration setting. During aggregation,
+only shared non-BN parameters are exchanged, while BN-tagged tensors
+and TDBN-related threshold parameters remain local. This allows the
+constellation to share common restoration weights while preserving
+satellite-specific normalization statistics caused by different cloud
+patterns, illumination conditions, and sensor distributions.
+
+\textbf{3) Experimental validation under centralized and federated
+settings.}
+On CUHK-CR1, \OrbitALIF{} reaches $25.37$\,dB PSNR and $0.7728$ SSIM while using only $2.30$\,M parameters. Its estimated
+per-image inference energy is reduced from $20.75$\,mJ for an ANN
+baseline to $0.287$\,mJ on neuromorphic hardware, corresponding to a
+$72.3\times$ reduction. In the decentralized setting, the proposed
+FedBN-on-SNN and Gossip pipeline remains robust under source-level
+Dirichlet heterogeneity.
+=====================================================================
+% Section II: System Model
+% =====================================================================
+\section{System Model}\label{sec:sysmodel}
+
+\subsection{Constellation and Problem Setup}\label{sec:sysmodel-setup}
+
+We consider a Walker-Star LEO constellation of $N\!=\!5$ planes,
+each with $K\!=\!10$ satellites for $NK\!=\!50$
+nodes~\cite{ref:walker1984,ref:flsnn}. Intra-plane ISLs are
+quasi-continuous, and inter-plane links open only at polar
+encounters, which we model as a length-$N$ chain.
+
+\textbf{Local data and global objective.}
+Index plane by $i\in\{1,\dots,N\}$ and satellite-within-plane by
+$k\in\{1,\dots,K\}$. Each satellite $s_{i,k}$ holds a local dataset
+$\mathcal{D}_{i,k}$ of paired cloudy/clear tiles $(\mathbf{c},\mathbf{y})$, where
+$c$ is the cloudy input and $y$ is the clear ground truth.
+
+In this work, federated learning means that each satellite trains
+on its own local cloudy/clear image pairs and exchanges model
+parameters rather than raw images. This avoids downlinking massive
+imagery and allows the constellation to improve a shared
+cloud-removal model collaboratively.
+
+Let $g_{\boldsymbol{\theta}}$ denote the cloud-removal backbone used in
+\OrbitALIF{}, where $\boldsymbol{\theta}\in\mathbb{R}^{d}$ collects the trainable
+network parameters and $d$ is the number of trainable scalars.
+Given a cloudy tile $c$, the model predicts a restored image
+$\hat{y}=g_{\boldsymbol{\theta}}(c)$.
+
+With $\ell$ denoting the restoration loss defined in
+Section~\ref{sec:framework-loss}, the decentralized training
+objective for the shared backbone parameters is
+\begin{equation}
+\min_{\boldsymbol{\theta} \in \mathbb{R}^{d}}\;
+f(\boldsymbol{\theta})
+=
+\frac{1}{NK}
+\sum_{i=1}^{N}
+\sum_{k=1}^{K}
+\frac{1}{|\mathcal{D}_{i,k}|}
+\sum_{(\mathbf{c},\mathbf{y})\in\mathcal{D}_{i,k}}
+\ell\!\left(g_{\boldsymbol{\theta}}(c),y\right),
+\label{eq:globalobj}
+\end{equation}
+where $\mathcal{D}_{i,k}$ is the local paired cloudy/clear dataset
+stored on satellite $s_{i,k}$. This is the standard cross-silo
+federated objective restricted to the constellation communication
+graph: each satellite optimizes the loss on its own data, and
+parameter exchange is allowed only along the links defined by the
+orbital topology.
+
+\textbf{Source-level heterogeneity.}
+Different orbital planes observe different cloud patterns,
+illumination conditions, and sensor statistics. To emulate this
+source-level non-IID setting, we partition the paired cloudy/clear
+tiles with a Dirichlet allocation~\cite{ref:hsu2019}. For each data
+source $s$ in the pooled training set, we draw a mixing vector
+$\mathbf{q}^{(s)}\sim\mathrm{Dir}(\alpha\mathbf{1}_{NK})$, whose
+entries determine the fraction of source-$s$ samples assigned to
+the $NK$ satellites. After sampling, we rebalance the partition so
+that each satellite contains at least five tiles. A smaller
+$\alpha$ creates a more imbalanced source assignment and therefore
+stronger feature-distribution shift across satellites. We use
+$\alpha=0.1$ as the default heterogeneous setting and report
+$\alpha=0.01$ as a stronger stress test in
+Section~\ref{sec:exp-federated}.
+
+\subsection{Decentralized Training Protocol}
+\label{sec:sysmodel-procedure}
+
+Each communication round has four steps. Let $r$ index the round and
+let $\boldsymbol{\theta}_i^{(r)}$ denote the shared non-BN parameters held by
+plane $i$ at the start of round $r$.
+
+(S1) Each satellite takes local AdamW steps on its own data.
+
+(S2) Each plane runs an exact ring-AllReduce that replaces every
+member's shared parameters with the plane mean of the post-step
+parameters. After (S2), all satellites in the same plane hold
+identical shared non-BN parameters. Therefore, the inter-plane stage
+can treat each plane as one logical node with state
+$\boldsymbol{\theta}_i^{(r+1/2)}$.
+
+(S3) Adjacent planes exchange a single Gossip step under the standard
+Metropolis mixing matrix~\cite{ref:gossip-boyd}:
+\begin{equation}
+\boldsymbol{\theta}_i^{(r+1)}
+=
+\sum_{j \sim i \text{ or } j=i}
+W_{ij}\,\boldsymbol{\theta}_j^{(r+1/2)} .
+\label{eq:gossip}
+\end{equation}
+Here, $W_{ij}=1/(\max(d_i,d_j)+1)$ for adjacent planes $i,j$,
+where $d_i$ counts the chain neighbours of plane $i$. The diagonal
+entries $W_{ii}$ are chosen so that each row of $W$ sums to one.
+
+(S4) Plane $i$ broadcasts $\boldsymbol{\theta}_i^{(r+1)}$ to its members.
+
+\textbf{FedBN-on-SNN.}
+Steps (S2) and (S3) mix only shared parameters. Every BN-tagged
+tensor stays local~\cite{ref:fedbn}, including TDBN-related
+threshold and normalization parameters in the spiking backbone.
+Keeping these parameters local allows each satellite to adapt to its
+own cloud and sensor distribution while sharing the remaining
+restoration weights.
+
+Per-round inter-plane traffic is
+$4\cdot d_{\rm shared}\cdot 2\cdot (N-1)$ bytes, where $4$ denotes
+the number of bytes per 32-bit floating-point parameter,
+$d_{\rm shared}$ is the number of shared non-BN parameters, and
+$2(N-1)$ counts bidirectional exchanges over the $N$-plane chain.
+The cumulative volume is reported in Table~\ref{tab:federated}.
+% =====================================================================
+% Section III: The ORBITALIF Framework
+% =====================================================================
+\section{The \OrbitALIF{} Framework}\label{sec:framework}
+
+\subsection{Design Principles and Architectural Overview}
+\label{sec:framework-principles}
+
+Cloud removal places two opposing pressures on the model.
+High-fidelity dense pixel regression favours large ANN restoration
+networks~\cite{ref:cuhkcr} but inflates inference energy, while
+onboard deployment favours binary-spike
+SNNs~\cite{ref:flsnn,ref:esdnet} that cap per-step expressivity at
+one bit. We retain SNN sparsity as the energy foundation and, within
+that constraint, organize the architecture around three principles.
+
+\textbf{P1. Multi-domain decomposition.} Cloud artefacts behave
+differently in different representations of the same image: smooth
+blobs in the raw pixel grid, mid-band concentration in the Fourier
+amplitude spectrum, and slow variation along the spike-sequence time
+axis. We therefore let each module decompose its input in its own
+native domain---LIF in the value domain, PixelShuffle-LIF in the
+spatial-block domain, FreqMLP in the frequency domain,
+temporal-attention in the time domain---and fuse the components
+downstream.
+
+\textbf{P2. Identity-preserving modulation.} Every modulation block
+takes the form
+$\mathbf{x}\!\mapsto\!\mathbf{x}+\gamma\,(\Phi(\mathbf{x})-\mathbf{x})$
+with $\gamma$ initialized at zero, so each block is identity at
+training start. Uncorrupted image regions pass through unmodified,
+and a new module cannot collapse a previously-trained checkpoint.
+
+\textbf{P3. Progressive coupling.} Cross-branch interactions are
+gated by parameters initialized at zero, so the cross-scale gate
+of \DFRB{}, the residual scale of \SHAM{}, and the FFT-magnitude
+scale of FreqMLP all start closed. Single-branch features mature
+first, and inter-branch coupling opens gradually during training.
+
+The backbone follows a three-level U-shaped encoder--decoder.
+Given a cloudy RGB tile
+$\mathbf{c}\!\in\!\mathbb{R}^{3\times H\times W}$ ($H,W$ height and
+width in pixels), it predicts the cloud-free image
+$\hat{\mathbf{y}}$ as a global residual,
+\begin{equation}
+\hat{\mathbf{y}}
+\;=\;
+\mathbf{c}\;+\;
+\mathrm{Conv}\!\left(\overline{\mathrm{Net}(\mathbf{c})}^{(T)}\right),
+\label{eq:globalresidual}
+\end{equation}
+where $\mathrm{Net}$ is the spiking U-Net body, $T\!=\!4$ is the
+number of spike time steps, $\overline{(\cdot)}^{(T)}$ denotes
+averaging over those $T$ steps, and $\mathrm{Conv}$ is a
+$3\!\times\!3$ output convolution that maps to $3$ RGB channels. The onboard variant
+uses base channel width $C\!=\!24$ and has approximately
+$2.30$\,M parameters. Figure~\ref{fig:overview} shows the system
+overview, and Table~\ref{tab:contribution} summarizes which
+principle each module instantiates. No single module satisfies all
+of them, and the integration in \OrbitALIF{} is the contribution
+of the remaining subsections of Section~\ref{sec:framework}.
+
+\begin{table}[!t]
+\centering
+\caption{Module--principle contribution matrix. Each module
+satisfies a subset of the architectural priors. MDD denotes
+multi-domain decomposition, IPM identity-preserving modulation, PC
+progressive coupling, GRF global receptive field, and SNN
+spike-compatibility. Only the integrated \OrbitALIF{} backbone
+satisfies all priors simultaneously.}
+\label{tab:contribution}
+\setlength{\tabcolsep}{3.5pt}
+\renewcommand{\arraystretch}{0.95}
+\footnotesize
+\begin{tabular}{lccccc}
+\toprule
+Component & MDD & IPM & PC & GRF & SNN \\
+\midrule
+\DFRB{}                & spat./val.  & ---         & \checkmark  & ---         & \checkmark  \\
+\SHAM{}                & freq./time  & \checkmark  & \checkmark  & \checkmark  & \checkmark  \\
+\AGFM{}                & enc./dec.   & ---         & \checkmark  & ---         & \checkmark  \\
+\SSHB{}                & spat./time  & \checkmark  & ---         & \checkmark  & \checkmark  \\
+\midrule
+\textbf{\OrbitALIF{}}  & \textbf{all} & \textbf{\checkmark} & \textbf{\checkmark} & \textbf{\checkmark} & \textbf{\checkmark} \\
+\bottomrule
+\end{tabular}
+\vspace{-1mm}
+\end{table}
+
+\begin{figure*}[!htbp]
+  \centering
+  \includegraphics[width=\textwidth]{fig01.png}
+\caption{\OrbitALIF{} system overview.}
+\label{fig:overview}
+\end{figure*}
+
+\subsection{Neuron Scale: Quantized Spike Activation}
+\label{sec:framework-neuron}
+
+An SNN represents activations as sparse spike events instead of dense real-valued numbers. When no spike is emitted, the corresponding synaptic operation can be skipped, which is the source of the energy benefit. However, a binary spike carries only “fire” or “not fire,” which is often too coarse for image restoration where each pixel intensity must be predicted accurately.
+Deeper SNN restoration networks
+(ESDNet~\cite{ref:esdnet}) recover quality but erode the energy
+advantage. ANN-to-SNN
+conversion~\cite{ref:rueckauer2017} preserves amplitude but loses
+strict event-driven sparsity. We need a neuron whose output is
+sparse enough to skip zero-valued operands and expressive enough
+to carry an amplitude when it fires.
+
+Let $t\!\in\!\{1,\dots,T\}$ be the spike time step,
+$u_t\!\in\!\mathbb{R}$ the membrane potential at step $t$, and
+$o_t$ the resulting spike output. The five-level quantized spike
+(5QS) clamps $u_t$ to $[0,4]$, rounds to the nearest integer, and
+divides by four,
+\begin{equation}
+o_t \;=\; \frac{\mathrm{round}(\mathrm{clamp}(u_t,0,4))}{4}\;\in\;
+\Big\{0,\,\tfrac{1}{4},\,\tfrac{1}{2},\,\tfrac{3}{4},\,1\Big\},
+\label{eq:5qs-forward}
+\end{equation}
+giving five admissible levels per step. The membrane evolves as a
+soft-reset LIF with leak rate $\tau\!=\!0.25$ where the previous
+spike is subtracted before the leak. Synaptic operations fire only when
+$o_t\!>\!0$, preserving event-driven sparsity while the four
+non-zero levels carry two bits per step instead of one. Training
+uses a straight-through surrogate that passes the upstream gradient
+through inside $[0,4]$ and clips it elsewhere. This neuron is the
+SNN-sparsity foundation underlying the energy claim of
+Section~\ref{sec:intro}.
+
+\subsection{Block Scale: Multi-Domain Decomposition}
+\label{sec:framework-block}
+
+Cloud artefacts span multiple frequencies: high-frequency boundaries,
+low-frequency colour cast, and a mid-band amplitude spectrum that
+overlaps surface texture. We therefore use two complementary decompositions: dual-frequency residual block in the
+spatial domain and spectral-spatial hybrid attention in the time/frequency domain.
+
+\textbf{Dual-Frequency Residual Block (\DFRB{}).} Let
+$\mathbf{X}$ be the block input feature tensor and $\odot$
+elementwise multiplication. \DFRB{} routes $\mathbf{X}$ through
+two cascaded groups. Group~1  splits $\mathbf{X}$ into a high-component
+$\mathbf{X}_h$ (LIF output) and a low-component
+$\mathbf{X}_l\!=\!\mathbf{X}\!-\!\mathbf{X}_h$. The two are
+recombined with learnable scalar weights and the high-region
+multiplicative gate $\mathbf{X}\!\odot\!\mathbf{X}_h$, then
+convolved and passed through TDBN. Group~2 applies the same
+template in the spatial-block domain through a $2\!\times$
+PixelShuffle-LIF, yielding $\mathbf{Z}_{2h}$. 
+
+\textbf{Spectral-Spatial Hybrid Attention (\SHAM{}).} Following the
+FSTA-SNN attention design~\cite{ref:fstasnn2025}, \SHAM{} re-weights
+spike features along the time and Fourier axes that \DFRB{} does
+not touch. A temporal amplitude attention reweights the $T$ spike
+steps with a sigmoid gate. A spatial frequency attention takes the
+2D real FFT of the temporal mean, modulates the magnitude with a
+\texttt{FreqMLP}, reconstructs via inverse FFT , and projects through a convolution with a sigmoid head. 
+
+\subsection{Network Scale: Gated Fusion and Hyper-Block}
+\label{sec:framework-network}
+
+Two failure modes remain after the block scale: hard U-Net skip
+addition mixes corrupted shallow features into the decoder under
+thick cloud, and a stack of $3\!\times\!3$ convolutions cannot
+deliver the global receptive field that the highest-resolution
+level needs to learn below.
+
+\textbf{Adaptive Gated Fusion (\AGFM{}).} It learns a
+per-pixel per-channel gate that fuses the decoder feature with
+the encoder skip.
+
+
+\textbf{Spectro-Temporal Spike Hyper-Block (\SSHB{}).}  It applies \DFRB{}, expands the time axis
+fourfold via a $2\!\times$ PixelUnshuffle applying temporal-channel
+attention, and compresses back via a Conv3D. A second \DFRB{}
+skip-add and a frequency-domain MLP adapted from
+DarkIR~\cite{ref:darkir2024} .
+
+\subsection{Training Objective and Protocol Interface}
+\label{sec:framework-loss}
+
+\OrbitALIF{} is trained with a per-pixel Charbonnier loss plus a
+Structural Similarity Index Measure (SSIM) term,
+\begin{equation}
+\ell(\hat{\mathbf{y}},\mathbf{y})
+=
+\frac{1}{|\Omega|}\!\sum_{p\in\Omega}
+\sqrt{(\hat{\mathbf{y}}_p-\mathbf{y}_p)^2+\varepsilon^2}
++\lambda\bigl(1-\mathrm{SSIM}(\hat{\mathbf{y}},\mathbf{y})\bigr),
+\label{eq:loss}
+\end{equation}
+where $\Omega$ is the pixel set of a tile, $\hat{\mathbf{y}}_p$ and
+$\mathbf{y}_p$ are the predicted and ground-truth RGB values at
+pixel $p$, $\varepsilon\!=\!10^{-3}$ is a smoothing constant, and
+$\lambda\!=\!0.1$ weights the SSIM term. The Charbonnier term is
+robust to cloud-occlusion outliers, and SSIM preserves
+cloud-boundary sharpness that pixelwise losses tend to oversmooth.
+
+\textbf{Protocol interface.} The same backbone is trained both
+centrally (Section~\ref{sec:exp-centralized}) and federatedly
+(Section~\ref{sec:exp-federated}). In the federated regime, every
+local copy minimizes Eq.~\eqref{eq:loss} on its own data, and the
+constellation pipeline of Section~\ref{sec:sysmodel} mediates
+parameter exchange. \textsc{FedBN}~\cite{ref:fedbn} keeps every
+BN-tagged tensor local, including TDBN threshold parameters, which
+absorbs the source-level cloud-thickness and radiometric drift
+introduced in Section~\ref{sec:sysmodel-setup}.
+Gossip~\cite{ref:gossip-boyd} on the chain topology replaces the
+central parameter server. Both choices are taken from prior work
+and are not claimed as new FL algorithms. The novelty at this
+interface is the joint application to a spiking restoration
+backbone, in particular the explicit handling of TDBN thresholds
+and of spikingjelly's non-tensor state-dict entries during
+aggregation.
+
+% =====================================================================
+% Section IV: Experiments
+% =====================================================================
+\section{Experiments}\label{sec:experiments}
+
+\subsection{Experimental Setup}\label{sec:exp-setup}
+
+\textbf{Datasets.} CUHK-CR~\cite{ref:cuhkcr} provides paired
+cloudy/clear Sentinel-2 RGB tiles. CR1 (thin cloud) and CR2 (thick
+cloud) define the two Dirichlet source domains. Training and
+evaluation use $64\!\times\!64$ random and centre crops
+respectively.
+
+\textbf{Models.} Three matched-protocol backbones share the same
+aggregation pipeline. \OrbitALIF{}-SNN uses \FQS{}-LIF, TDBN,
+$T\!=\!4$, and base width $C\!=\!24$ for $2.30$\,M parameters.
+\OrbitALIF{}-ANN replaces every \FQS{}-LIF with ReLU and every TDBN
+with BN, keeping the same dataflow. PlainUNet is a vanilla U-Net
+baseline used for ablation reference.
+
+\textbf{Training.} Centralized runs use $400$ epochs of AdamW with
+$10^{-3}\!\to\!10^{-7}$ cosine learning rate, three warmup epochs,
+batch size four, and gradient clipping at $\|g\|_2\!\le\!1$.
+Ablation runs use $300$ epochs. Federated runs use $R\!=\!200$
+rounds of $E\!=\!2$ local steps under Dirichlet
+$\alpha\!=\!0.1$. We report PSNR, SSIM, cumulative inter-plane
+communication in MB, and wall time.
+
+\textbf{Energy measurement.} Index trainable layers by $\ell$. A
+forward hook on every \texttt{Conv2d} and \texttt{Linear} records
+the per-call MAC count $\mathrm{MAC}_\ell$ and the input non-zero
+rate $r_\ell\!=\!\Pr[\mathbf{x}_\ell\!\neq\!0]$, accumulated over
+$32$ CUHK-CR1 test patches at $64\!\times\!64$. Two per-operation
+energy constants $e_{\rm op}$ are taken from the literature:
+$4.6$\,pJ/MAC for the ANN baseline (Horowitz, $45$\,nm
+CMOS~\cite{ref:horowitz2014}) and $77$\,fJ/SOP for SNN deployment
+on neuromorphic substrates such as Loihi-2~\cite{ref:loihi}, the
+value adopted by FLSNN~\cite{ref:flsnn} and
+ESDNet~\cite{ref:esdnet}. Per-image SNN energy is
+$\sum_\ell \mathrm{MAC}_\ell\,r_\ell\,e_{\rm op}$.
+
+\subsection{Per-Image Inference Energy}\label{sec:exp-energy}
+
+The energy claim of Section~\ref{sec:intro} can be misreported in
+two ways. The number of synaptic operations a trained SNN actually
+executes is much smaller than the worst-case sparse arithmetic
+that pure FLOPs counting suggests. The per-operation energy
+constant also differs by roughly $60\!\times$ between standard
+CMOS and neuromorphic substrates, so a single multiplier cannot
+cover both deployment scenarios. We therefore measure the real
+per-layer non-zero rates on CR1 (Section~\ref{sec:exp-setup}) and
+report a dual bound, with the lower bound matching neuromorphic
+deployment and the upper bound assuming no neuromorphic
+acceleration is available.
+
+\begin{figure}[!htbp]
+  \centering
+  \includegraphics[width=\columnwidth]{fig6_energy_bars-1.png}
+  \caption{Per-image estimated inference energy on a
+  $64\!\times\!64$ CUHK-CR1 centre patch. ANN baseline at
+  $4.6$\,pJ/MAC. \OrbitALIF{} is reported as a dual bound, with the
+  lower bound at $77$\,fJ/SOP for neuromorphic substrates and the
+  upper bound charging every non-zero MAC at the full ANN rate.
+  Multipliers vs.\ ANN are annotated above each bar.}
+  \label{fig:energy}
+\end{figure}
+
+Figure~\ref{fig:energy} reports per-image bounds. The ANN baseline
+consumes $20.75$\,mJ over the $4.51$\,GMAC inference.
+\OrbitALIF{} consumes $0.287$\,mJ in the lower bound (Loihi-2,
+Speck, Akida class substrates), a $72.3\!\times\!$ reduction, and
+$17.14$\,mJ in the upper bound (general-purpose CMOS without
+neuromorphic acceleration), a $1.21\!\times\!$ reduction. The MAC-weighted average non-zero rate
+across layers is $0.826$ on CR1 and $0.823$ on CR2,
+indistinguishable at two decimal places. Per-layer hooks on LIF
+and \FQS{} modules show $20$\,--\,$70\,\%$ non-zero activation,
+with \FQS{} layers higher because four of five quantization levels
+are non-zero by construction.
+
+\subsection{Centralized Cloud-Removal Performance}\label{sec:exp-centralized}
+
+The energy savings of Section~\ref{sec:exp-energy} are only useful
+if restoration quality holds up. Spiking restoration networks
+frequently underperform their ANN counterparts at the same
+parameter count~\cite{ref:esdnet}, which raises the question of
+whether a similar gap appears here. We train \OrbitALIF{} centrally
+under the same optimization protocol as the PlainUNet baseline and
+read off CR1 and CR2 numbers.
+
+Under AdamW with $10^{-3}\!\to\!10^{-7}$ cosine over $400$ epochs
+and batch size four, \OrbitALIF{} reaches $25.374$\,dB on CUHK-CR1
+and $23.197$\,dB on CUHK-CR2, exceeding the PlainUNet baseline by
+$+0.502$\,dB on CR1 and $+0.157$\,dB on CR2 despite sparse spike
+activations and TDBN-quantized intermediate features. The narrower
+CR2 margin reflects the harder restoration ceiling under fully
+opaque cloud cover, an effect we revisit in the qualitative results
+(Section~\ref{sec:exp-qualitative}). The CR1 gain is architectural,
+not a side effect of any one component: the ablations of
+Section~\ref{sec:exp-ablation} show that disabling either \SHAM{}
+or the dual-group \DFRB{} removes the gain entirely
+(Tab.~\ref{tab:ablation}, rows B1--B2).
+\begin{table}[!t]
+\centering
+\caption{Cloud-removal comparison on CUHK-CR1. Baseline results are
+cited from~\cite{ref:cuhkcr}. ``Ops.'' denotes MACs for ANN models
+and SOPs for \OrbitALIF{}.}
+\label{tab:cr1-bench}
+\setlength{\tabcolsep}{3.2pt}
+\renewcommand{\arraystretch}{0.95}
+\footnotesize
+\begin{tabular}{lcccc}
+\toprule
+Method & Params (M) & Ops. (G) & PSNR (dB) & SSIM \\
+\midrule
+SpA-GAN~\cite{ref:cuhkcr}         & 0.22  & 19.40  & 20.999 & 0.5162 \\
+AMGAN-CR~\cite{ref:cuhkcr}        & 0.24  & 48.48  & 20.867 & 0.4986 \\
+CVAE~\cite{ref:cuhkcr}            & 15.56 & 37.13  & 24.252 & 0.7252 \\
+MemoryNet~\cite{ref:cuhkcr}       & 3.64  & 548.65 & 26.073 & 0.7741 \\
+MSDA-CR~\cite{ref:cuhkcr}         & 3.91  & 53.45  & 25.435 & 0.7483 \\
+DE-MemoryNet~\cite{ref:cuhkcr}    & 36.80 & 199.15 &
+\textcolor{red}{\textbf{26.183}} & \textcolor{red}{\textbf{0.7746}} \\
+DE-MSDA~\cite{ref:cuhkcr}         & 36.80 & 199.15 & 25.739 & 0.7592 \\
+\midrule
+\textbf{\OrbitALIF{} (ours)}      & \textcolor{red}{\textbf{2.30}} &
+\textcolor{red}{\textbf{15.60}} &
+\textcolor{blue}{\textbf{25.374}} &
+\textcolor{blue}{\textbf{0.7728}} \\
+\bottomrule
+\end{tabular}
+\vspace{-1mm}
+\end{table}
+
+\textbf{Comparison with cloud-removal baselines.}
+Tab.~\ref{tab:cr1-bench} places \OrbitALIF{} on CUHK-CR1 alongside
+seven established cloud-removal models reported
+in~\cite{ref:cuhkcr}. \OrbitALIF{} sits within $0.81$\,dB of the
+strongest cited model (DE-MemoryNet, $26.183$\,dB) while using
+$2.30$\,M parameters, fewer than the $3.64$\,M of MemoryNet, the
+$3.91$\,M of MSDA-CR, and the $15.56$\,M of CVAE. Its SSIM of
+$0.7728$ is exceeded only by the two DE-prefixed entries. The
+trade-off this table reveals underpins the energy claim of
+Section~\ref{sec:exp-energy}: at LEO power budgets the larger
+baselines are not deployable, and the most relevant figure of merit
+becomes PSNR-per-parameter, where \OrbitALIF{} sits on the Pareto
+front of the listed models.
+
+\subsection{Component Ablation}\label{sec:exp-ablation}
+
+The previous subsection claimed that the CR1 gain is architectural
+rather than driven by a single dominant module. We test this by
+disabling one \OrbitALIF{} component at a time and retraining on
+CR1 for $300$ epochs. B1 replaces every \SHAM{} block with the
+identity. B2 replaces every \DFRB{} with a single-group residual
+block that keeps only the temporal LIF group, removing the
+PixelShuffle-LIF spatial path and the cross-scale gate $\sigma(g)$.
+B3 replaces \FQS{} with a binary spike, keeping the surrogate
+gradient window $[0,4]$ and $1/4$ scale unchanged so that only
+the forward quantization granularity changes. \AGFM{} is excluded
+as its $1\!\times\!1$ gate at L1/L2 contributes under one percent
+of parameters.
+
+\begin{table}[!htbp]
+\centering
+\caption{Component ablation on CUHK-CR1.}
+\label{tab:ablation}
+\scriptsize
+\setlength{\tabcolsep}{3.0pt}
+\renewcommand{\arraystretch}{0.92}
+\begin{tabular}{lccccc}
+\toprule
+Variant & Params & PSNR & $\Delta$P & SSIM & $\Delta$S \\
+        & (M)    & (dB) & (dB)      &      &          \\
+\midrule
+\textbf{Full (A1)}     & $2.30$ & $\mathbf{25.374}$ & ---      & $\mathbf{0.7728}$ & ---      \\
+$-$\SHAM{} (B1)        & $2.22$ & $24.777$          & $-0.597$ & $0.7620$          & $-0.0108$ \\
+$-$\DFRB{} dual (B2)   & $1.44$ & $24.858$          & $-0.516$ & $0.7633$          & $-0.0095$ \\
+$-$\FQS{} (B3)         & $2.30$ & $25.072$          & $-0.302$ & $0.7666$          & $-0.0062$ \\
+\midrule
+PlainUNet (C2)         & $1.31$ & $24.872$          & $-0.502$ & $0.7683$          & $-0.0045$ \\
+\bottomrule
+\end{tabular}
+\vspace{-1mm}
+\end{table}
+
+\begin{figure}[!htbp]
+  \centering
+  \includegraphics[width=\columnwidth]{fig4_ablation_bars-1.png}
+  \caption{Component ablation on CUHK-CR1. PSNR (left) and SSIM
+  (right) for the full \OrbitALIF{} (A1) and the three
+  single-component ablations B1--B3. Numerical $\Delta$ values are
+  printed above each ablated bar, and the diagonal-hatch pattern marks
+  the reference (Full) bar.}
+  \label{fig:ablation}
+\end{figure}
+
+\textbf{Component ranking.} Figure~\ref{fig:ablation} visualizes
+the per-component drops, ordered as \SHAM{} ($-0.597$\,dB),
+dual-group \DFRB{} ($-0.516$\,dB), then \FQS{} ($-0.302$\,dB).
+The ordering matches Section~\ref{sec:framework}: \SHAM{} and
+\DFRB{} carry feature-extraction load, while \FQS{} is the
+activation-level expression of sparsity rather than a
+feature-extractor.
+
+\textbf{Co-design evidence.} B1 ($24.777$\,dB) and B2
+($24.858$\,dB) both fall below PlainUNet at $24.872$\,dB, while
+B3 stays above. The $+0.502$\,dB margin is therefore a synergy
+across components rather than a sum of independent gains, with
+\FQS{} acting as a refinement rather than a load-bearing module.
+
+\subsection{Decentralized Federated Cloud-Removal}\label{sec:exp-federated}
+
+The architectural advantage measured in
+Section~\ref{sec:exp-centralized} was obtained under centralized
+training with full data access. The harder question is whether it
+survives the decentralized setting introduced in
+Section~\ref{sec:sysmodel-procedure}, where each satellite sees
+only its source-Dirichlet share of the data and exchanges
+parameters with a chain-Gossip topology. We deploy three
+matched-protocol backbones on the $5\!\times\!10\!=\!50$-satellite
+Walker-Star constellation under $\alpha\!=\!0.1$ for $R\!=\!200$
+rounds. \OrbitALIF{}-SNN is the full spiking variant.
+\OrbitALIF{}-ANN replaces every \FQS{}-LIF with ReLU. PlainUNet is
+the ANN U-Net baseline. All three share the identical aggregation
+pipeline and differ only in the per-satellite network, so any
+performance gap is attributable to the backbone alone.
+
+\begin{table}[!htbp]
+\centering
+\caption{Decentralized federated cloud-removal on CUHK-CR1\,$\cup$\,CR2
+under \textsc{FedBN}\,+\,Gossip, $R\!=\!200$ rounds, source-level
+Dirichlet $\alpha\!=\!0.1$. Communication volume is the cumulative
+inter-plane traffic over shared (non-BN) parameters. Both
+\OrbitALIF{} variants share identical non-BN parameter counts and
+therefore identical Comm.}
+\label{tab:federated}
+\begin{tabular}{lcccc}
+\toprule
+Backbone (FedBN $\times$ Gossip)    & PSNR (dB)         & SSIM              & Comm (MB) \\
+\midrule
+PlainUNet (baseline)                 & $22.012$          & $0.6819$          & $8420$     \\
+\OrbitALIF{}-ANN                     & $\mathbf{22.679}$ & $\mathbf{0.6966}$ & $14777$    \\
+\OrbitALIF{}-SNN (ours)              & $21.886$          & $0.6725$          & $14777$    \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[!htbp]
+  \centering
+  \includegraphics[width=\columnwidth]{fig5_federated_curves-1.png}
+  \caption{Federated test PSNR versus communication round under
+  \textsc{FedBN}\,+\,Gossip with $\alpha\!=\!0.1$. Per-plane shading
+  shows the min--max envelope across the five orbital planes.}
+  \label{fig:federated}
+\end{figure}
+
+\textbf{Architecture survives the federated setting.}
+Figure~\ref{fig:federated} plots federated PSNR against
+communication rounds. \OrbitALIF{}-ANN reaches $22.679$\,dB
+($0.6966$ SSIM), exceeding the PlainUNet floor of $22.012$\,dB by
+$+0.667$\,dB---larger than the centralized $+0.502$\,dB margin,
+showing the advantage scales with rather than diminishes under
+decentralized training.
+
+\textbf{Spiking cost is recovered in energy.} Replacing
+\FQS{}-LIF with ReLU costs the SNN variant $0.793$\,dB versus
+the ANN variant ($21.886$ vs $22.679$), still within $0.13$\,dB of
+the PlainUNet ANN baseline. The loss is recouped in the
+$1.21\!\times$ to $72.3\!\times$ inference-energy reduction of
+Section~\ref{sec:exp-energy}.
+
+\textbf{Heterogeneity sensitivity.} Tightening source heterogeneity
+to $\alpha\!=\!0.01$ degrades \OrbitALIF{}-SNN by only
+$-0.126$\,dB ($21.886\!\to\!21.760$). \textsc{FedBN}-local
+normalization absorbs the additional skew without re-tuning. The
+$2.86$\,dB residual centralized-to-federated gap on PlainUNet
+reflects the difficulty of the partition itself, where $30$ of $50$
+satellites hold only the five-tile floor.
+
+\subsection{Qualitative Results}\label{sec:exp-qualitative}
+
+\begin{figure}[!htbp]
+  \centering
+  \includegraphics[width=\columnwidth]{fig3_qualitative_grid-1.png}
+  \caption{Qualitative cloud-removal on four CUHK-CR1 test tiles
+  (cloudy input / \OrbitALIF{} / PlainUNet / ground truth).
+  Per-image PSNR annotated on each cell.}
+  \label{fig:qualitative}
+\end{figure}
+
+Figure~\ref{fig:qualitative} provides a visual check on the PSNR
+margins of the previous subsections. \OrbitALIF{} recovers texture
+and colour consistency across the four CR1 test tiles, with the
+clearest gain along thin-cloud edges where the spatial path of
+\DFRB{} is most active. The visual advantage narrows under fully
+opaque cloud cover, consistent with the smaller $+0.157$\,dB CR2
+margin (Section~\ref{sec:exp-centralized}).
+
+% =====================================================================
+% Section V: Conclusion
+% =====================================================================
+\section{Conclusion}\label{sec:conclusion}
+
+We presented \OrbitALIF{}, the first end-to-end framework that
+performs both onboard training and onboard inference for optical
+cloud removal on a Walker-Star LEO constellation. The architecture
+is organized around three principles---multi-domain decomposition,
+identity-preserving modulation, and progressive coupling---within
+an SNN-sparsity foundation. The centralized $2.30$\,M-parameter
+backbone reaches $25.37$/$23.20$\,dB on CUHK-CR1/CR2 (exceeding the
+PlainUNet baseline by $+0.50$/$+0.16$\,dB and sitting on the
+PSNR-per-parameter Pareto front of published cloud-removal models
+on the CUHK-CR1 benchmark), and cuts per-image inference energy
+from $20.75$\,mJ to $0.287$\,mJ on neuromorphic substrates
+($72.3\!\times$ reduction, $1.21\!\times$ on general-purpose CMOS). Under FedBN-on-SNN with $\alpha\!=\!0.1$,
+\OrbitALIF{}-ANN reaches $22.679$\,dB ($+0.667$\,dB over PlainUNet)
+and \OrbitALIF{}-SNN reaches $21.886$\,dB (within $0.13$\,dB), with
+only $0.126$\,dB further degradation when heterogeneity tightens
+tenfold. Component ablation confirms the architecture is a
+co-designed whole.
+
+Future directions include closing the centralized-to-federated
+gap (e.g., $2.86$\,dB on PlainUNet at $\alpha\!=\!0.1$) via partial
+participation, momentum aggregation, or orbital-geometry-aware
+mixing matrices, and replacing the analytic energy bracket with
+hardware-measured power on neuromorphic substrates such as
+Loihi-2, Speck, or Akida.
+
+
+\begin{thebibliography}{99}
+
+\bibitem{ref:earthobs1}
+X.~X.~Zhu, D.~Tuia, L.~Mou, G.-S.~Xia, L.~Zhang, F.~Xu, and
+F.~Fraundorfer,
+``Deep learning in remote sensing: A comprehensive review and list of
+resources,''
+\emph{IEEE Geosci.\ Remote Sens.\ Mag.}, vol.~5, no.~4, pp.~8--36,
+Dec.\ 2017.
+
+\bibitem{ref:earthobs2}
+S.~Voigt \emph{et~al.},
+``Global trends in satellite-based emergency mapping,''
+\emph{Science}, vol.~353, no.~6296, pp.~247--252, Jul.\ 2016.
+
+
+\bibitem{ref:onboardfl-bottleneck}
+P.~Gomez \emph{et~al.},
+``Tackling the satellite downlink bottleneck with federated onboard
+learning of image compression,''
+\emph{Proc.\ IEEE/CVF Conf.\ Comput.\ Vis.\ Pattern Recognit.\
+Workshops (CVPRW)}, 2024.
+
+
+\bibitem{ref:spacecpn1}
+J.~Liu, Y.~Shi, Z.~M.~Fadlullah, and N.~Kato,
+``Space-air-ground integrated network: A survey,''
+\emph{IEEE Commun.\ Surveys Tuts.}, vol.~20, no.~4, pp.~2714--2741,
+4th Quart.\ 2018.
+
+\bibitem{ref:cuhkcr}
+Y.~Sui \emph{et~al.},
+``Diffusion enhancement for cloud removal in ultra-resolution remote
+sensing imagery,''
+\emph{IEEE Trans.\ Geosci.\ Remote Sens.}, 2024.
+% arXiv:2401.15105
+
+\bibitem{ref:maass1997}
+W.~Maass,
+``Networks of spiking neurons: The third generation of neural network
+models,''
+\emph{Neural Networks}, vol.~10, no.~9, pp.~1659--1671, 1997.
+
+\bibitem{ref:loihi}
+M.~Davies \emph{et~al.},
+``Loihi: A neuromorphic manycore processor with on-chip learning,''
+\emph{IEEE Micro}, vol.~38, no.~1, pp.~82--99, Jan./Feb.\ 2018.
+
+\bibitem{ref:esdnet}
+H.~Song \emph{et~al.},
+``Exploring the potentials of spiking neural networks for image
+deraining,''
+\emph{arXiv preprint arXiv:2207.02094}, 2022.
+
+\bibitem{ref:flsnn}
+P.~Yang, T.~Wang, \emph{et~al.},
+``Brain-inspired decentralized satellite learning in space computing
+power networks,''
+\emph{arXiv preprint arXiv:2501.15995}, 2025.
+
+\bibitem{ref:fedavg}
+H.~B.~McMahan, E.~Moore, D.~Ramage, S.~Hampson, and B.~A.~y~Arcas,
+``Communication-efficient learning of deep networks from decentralized
+data,''
+\emph{Proc.\ Int.\ Conf.\ Artif.\ Intell.\ Statist.\ (AISTATS)}, 2017.
+
+\bibitem{ref:fedbn}
+X.~Li, M.~Jiang, X.~Zhang, M.~Kamp, and Q.~Dou,
+``FedBN: Federated learning on non-IID features via local batch
+normalization,''
+\emph{Proc.\ Int.\ Conf.\ Learn.\ Represent.\ (ICLR)}, 2021.
+
+\bibitem{ref:gossip-boyd}
+S.~Boyd, A.~Ghosh, B.~Prabhakar, and D.~Shah,
+``Randomized gossip algorithms,''
+\emph{IEEE Trans.\ Inf.\ Theory}, vol.~52, no.~6, pp.~2508--2530,
+Jun.\ 2006.
+
+\bibitem{ref:hsu2019}
+T.-M.~H.~Hsu, H.~Qi, and M.~Brown,
+``Measuring the effects of non-identical data distribution for
+federated visual classification,''
+\emph{arXiv preprint arXiv:1909.06335}, 2019.
+
+
+\bibitem{ref:king2013cloud}
+M.~D.~King, S.~Platnick, W.~P.~Menzel, S.~A.~Ackerman, and
+P.~A.~Hubanks,
+``Spatial and temporal distribution of clouds observed by MODIS
+onboard the Terra and Aqua satellites,''
+\emph{IEEE Trans.\ Geosci.\ Remote Sens.}, vol.~51, no.~7,
+pp.~3826--3852, Jul.\ 2013.
+
+\bibitem{ref:ebel2021multisensor}
+P.~Ebel, A.~Meraner, M.~Schmitt, and X.~X.~Zhu,
+``Multisensor data fusion for cloud removal in global and all-season
+Sentinel-2 imagery,''
+\emph{IEEE Trans.\ Geosci.\ Remote Sens.}, vol.~59, no.~7,
+pp.~5866--5878, Jul.\ 2021.
+
+\bibitem{ref:walker1984}
+J.~G.~Walker,
+``Satellite constellations,''
+\emph{J.\ Brit.\ Interplanetary Soc.}, vol.~37, pp.~559--572, 1984.
+
+\bibitem{ref:horowitz2014}
+M.~Horowitz,
+``Computing's energy problem (and what we can do about it),''
+\emph{IEEE Int.\ Solid-State Circuits Conf.\ (ISSCC) Dig.\ Tech.\
+Papers}, pp.~10--14, Feb.\ 2014.
+
+
+\bibitem{ref:rueckauer2017}
+B.~Rueckauer, I.-A.~Lungu, Y.~Hu, M.~Pfeiffer, and S.-C.~Liu,
+``Conversion of continuous-valued deep networks to efficient
+event-driven networks for image classification,''
+\emph{Frontiers Neurosci.}, vol.~11, p.~682, Dec.\ 2017.
+
+\bibitem{ref:fstasnn2025}
+[Authors],
+``FSTA-SNN: Frequency-based spatial-temporal attention for spiking
+neural networks,''
+\emph{Proc.\ AAAI Conf.\ Artif.\ Intell.}, 2025.
+
+\bibitem{ref:darkir2024}
+[Authors],
+``DarkIR: Robust low-light image restoration,''
+\emph{Proc.\ IEEE/CVF Conf.\ Comput.\ Vis.\ Pattern Recognit.\
+(CVPR)}, 2025.
+
+\end{thebibliography}
+
+\end{document}
