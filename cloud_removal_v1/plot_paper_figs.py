@@ -1286,6 +1286,65 @@ def _short_layer_name(full: str, max_len: int = 14) -> str:
     return full[:max_len]
 
 
+def fig8_alpha_curves(args, out_dir: Path) -> None:
+    """SNN federated PSNR-vs-round overlay across Dirichlet alphas.
+
+    Reads three NPZ runs::
+
+        v2a_F_snn_alpha10_fedbn_Gossip_Averaging.npz   (alpha=1.0,  IID-ish)
+        v2a_F_snn_fedbn_Gossip_Averaging.npz           (alpha=0.1,  default)
+        v2a_F_snn_alpha001_fedbn_Gossip_Averaging.npz  (alpha=0.01, extreme)
+
+    Three curves on a single axis; colour interpolates from light to
+    dark blue with decreasing alpha so the heterogeneity ladder reads
+    visually.  Skipped (no crash) when all three runs are missing.
+    """
+    _setup_mpl()
+    import matplotlib.pyplot as plt
+
+    outputs_v2 = Path(args.outputs_v2)
+
+    # (alpha_label, run_name, colour) — order = increasing heterogeneity.
+    spec = [
+        (r"$\alpha=1.0$",  "F_snn_alpha10",  "#9ecae1"),
+        (r"$\alpha=0.1$",  "F_snn",          "#3182bd"),
+        (r"$\alpha=0.01$", "F_snn_alpha001", "#08306b"),
+    ]
+
+    drawn: List[tuple] = []
+    for label, run_name, _ in spec:
+        d = load_federated_npz(outputs_v2, run_name)
+        if d is None:
+            continue
+        rounds = np.asarray(d["epochs"], dtype=float)
+        psnr = np.asarray(d["eval_psnr"], dtype=float)
+        rounds, psnr = _finite(rounds, psnr)
+        if rounds.size == 0:
+            continue
+        drawn.append((label, rounds, psnr))
+
+    if not drawn:
+        _warn("fig8: all alpha-sweep runs missing, skipped")
+        return
+
+    fig, ax = plt.subplots(figsize=(3.5, 2.4))
+    legend_handles, legend_labels = [], []
+    for (label, rounds, psnr), (_, _, color) in zip(drawn, spec):
+        psnr_s = _smooth(psnr, w=9)
+        ln, = ax.plot(rounds, psnr_s, color=color, linewidth=1.3)
+        legend_handles.append(ln)
+        legend_labels.append(label)
+
+    ax.set_xlabel("Communication round")
+    ax.set_ylabel("PSNR (dB)")
+    ax.legend(legend_handles, legend_labels, loc="lower right", ncol=1)
+    ax.margins(x=0.02)
+
+    fig.tight_layout(pad=0.3)
+    _save_pdf(fig, out_dir / "fig8_alpha_curves.pdf")
+    plt.close(fig)
+
+
 def fig9_per_layer_spike_rate(args, out_dir: Path) -> None:
     """Per-layer spike (firing) rate bar chart, FLSNN Fig 8a style.
 
@@ -1706,6 +1765,7 @@ _FIG_REGISTRY = {
     5:  ("fig5_federated_curves",        "fig5_federated_curves.pdf"),
     6:  ("fig6_energy_bars",             "fig6_energy_bars.pdf"),
     7:  ("fig7_centralized_4panel",      "fig7_centralized_4panel.pdf"),
+    8:  ("fig8_alpha_curves",            "fig8_alpha_curves.pdf"),
     9:  ("fig9_per_layer_spike_rate",    "fig9_per_layer_spike_rate.pdf"),
     # fig10 (r-histogram) intentionally removed from default `--figs all`
     # output: the strongly right-skewed real distribution exposes that
@@ -1733,6 +1793,7 @@ def main(argv=None) -> None:
         5:  fig5_federated_curves,
         6:  fig6_energy_bars,
         7:  fig7_centralized_4panel,
+        8:  fig8_alpha_curves,
         9:  fig9_per_layer_spike_rate,
         # 10: fig10_spike_rate_histogram,  # intentionally disabled — see _FIG_REGISTRY
     }

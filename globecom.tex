@@ -696,12 +696,28 @@ stress this source-level skew we tighten the Dirichlet concentration
 tenfold from $\alpha\!=\!0.1$ to $\alpha\!=\!0.01$, a regime in
 which most satellites see only one or two cloud regimes.
 \OrbitALIF{}-SNN drops by only $-0.126$\,dB
-($21.886\!\to\!21.760$\,dB) under this tightening. The mechanism is
-plane-local normalization: under \textsc{FedBN} the BN and \TDBN\
-affine parameters and running statistics are excluded from the
-inter-plane average (Section~\ref{sec:sysmodel}), so each plane
-keeps a normalizer matched to its own climatology and inherits no
-statistical bias from planes with different distributions.
+($21.886\!\to\!21.760$\,dB) under this tightening, and
+Fig.~\ref{fig:alpha} shows the same robustness across the full
+$\alpha\!\in\!\{1.0,0.1,0.01\}$ ladder: the three PSNR-vs-round
+curves remain tightly bunched, with the $\alpha\!=\!0.01$ trace
+shifted by only a fraction of a dB from the $\alpha\!=\!1.0$
+trace. The mechanism is plane-local normalization: under
+\textsc{FedBN} the BN and \TDBN\ affine parameters and running
+statistics are excluded from the inter-plane average
+(Section~\ref{sec:sysmodel}), so each plane keeps a normalizer
+matched to its own climatology and inherits no statistical bias
+from planes with different distributions.
+
+\begin{figure}[!t]
+  \centering
+  \includegraphics[width=\columnwidth]{fig8_alpha_curves.png}
+  \caption{\OrbitALIF{}-SNN federated PSNR vs.\ communication round
+  under \textsc{FedBN}+Gossip across Dirichlet
+  $\alpha\!\in\!\{1.0,0.1,0.01\}$. Tighter $\alpha$ means more
+  source-level heterogeneity; the curves remain close, evidencing
+  that plane-local BN absorbs the additional skew.}
+  \label{fig:alpha}
+\end{figure}
 
 Even at the milder $\alpha\!=\!0.1$, the partition difficulty alone
 is severe: $30$ of the $50$ satellites hold only the five-tile
