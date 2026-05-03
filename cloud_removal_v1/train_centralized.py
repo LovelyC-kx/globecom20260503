@@ -11,8 +11,14 @@ Supports three backbones:
   * vlif_ann   : VLIFNet with LIF → ReLU substitution (same arch, ANN)
   * plain_ann  : PlainUNet (no attention / no frequency / no spike) baseline
 
-And three ablation modes (apply only when backbone in {vlif, vlif_ann}):
+And four ablation modes (apply only when backbone in {vlif, vlif_ann}):
   * none           : full model
+  * no_agfm        : every GatedSkipFusion → _PlainSkipFusion (drops the
+                     content-dependent Conv1x1 + sigmoid gate; keeps the
+                     post-fusion LIF + TDBN tail so the only variable
+                     relative to the full model is the gating mechanism).
+                     Affects the L1 and L2 skip connections; L3 has no
+                     AGFM in the full model so is unchanged.
   * no_fsta        : FSTAModule + FreMLPBlock → Identity
   * binary_spike   : MultiSpike-4 → binary {0, 1} (vlif backbone only).
                      NOTE: VLIFNet's mem_update modules accumulate small
@@ -40,6 +46,12 @@ Usage
         --data_root /abs/path/CUHK-CR1 --dataset_name CR1 \
         --backbone vlif --ablation binary_spike \
         --num_epoch 300 --run_name B3_binary_cr1
+
+    # CR1 ablation (Tab 1): w/o AGFM
+    python -m cloud_removal_v1.train_centralized \
+        --data_root /abs/path/CUHK-CR1 --dataset_name CR1 \
+        --backbone vlif --ablation no_agfm \
+        --num_epoch 300 --run_name B4_no_agfm_cr1
 
     # Plain ANN U-Net baseline
     python -m cloud_removal_v1.train_centralized \
@@ -111,7 +123,8 @@ def _parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--backbone", type=str, default="vlif",
                    choices=["vlif", "vlif_ann", "plain_ann"])
     p.add_argument("--ablation", type=str, default="none",
-                   choices=["none", "no_fsta", "binary_spike", "no_dual_group"])
+                   choices=["none", "no_fsta", "binary_spike",
+                            "no_dual_group", "no_agfm"])
     p.add_argument("--vlif_dim", type=int, default=24)
     p.add_argument("--en_blocks", type=int, nargs=4, default=[2, 2, 4, 4])
     p.add_argument("--de_blocks", type=int, nargs=4, default=[2, 2, 2, 2])
@@ -200,6 +213,34 @@ class _BinarySpikeModule(nn.Module):
         return _BinarySpike.apply(x)
 
 
+class _PlainSkipFusion(nn.Module):
+    """Vanilla skip connection used by the no_agfm ablation.
+
+    Drops the content-dependent Conv1x1 + sigmoid gate of GatedSkipFusion
+    (vlifnet.py:489-503) and instead simply adds the encoder and decoder
+    feature maps elementwise. The post-fusion LIF + TDBN tail is kept
+    identical to GatedSkipFusion so the *only* variable relative to the
+    full model is the gating mechanism — both fusion paths produce a
+    [T, B, C, H, W] tensor with the same statistics-normalisation
+    behaviour. Initialised fresh; the ablation is trained from scratch.
+    """
+
+    def __init__(self, dim: int):
+        super().__init__()
+        from cloud_removal_v1.models.vlifnet import (
+            _make_lif_or_relu, _make_bn, v_th, alpha,
+        )
+        from spikingjelly.activation_based import functional
+
+        functional.set_step_mode(self, step_mode="m")
+
+        self.lif = _make_lif_or_relu(v_threshold=v_th, decay_input=False)
+        self.bn = _make_bn(num_features=dim, alpha=alpha, v_th=v_th)
+
+    def forward(self, dec, enc):
+        return self.bn(self.lif(dec + enc))
+
+
 class _SingleGroupSRB(nn.Module):
     """Spiking Residual Block with only the temporal-LIF group (Group 1).
 
@@ -282,6 +323,18 @@ def _apply_ablation(model: nn.Module, ablation: str, backbone: str) -> nn.Module
                     sub.qtrick = _BinarySpikeModule()
                     n_replaced += 1
         _log(f"ablation=binary_spike: replaced {n_replaced} MultiSpike4 instances")
+        return model
+
+    if ablation == "no_agfm":
+        from cloud_removal_v1.models.vlifnet import GatedSkipFusion
+        targets = [(name, sub) for name, sub in model.named_modules()
+                   if isinstance(sub, GatedSkipFusion)]
+        for name, sub in targets:
+            # gate_conv: layer.Conv2d(2*dim, dim, 1) -> dim = out_channels
+            dim = sub.gate_conv.weight.shape[0]
+            _set_submodule(model, name, _PlainSkipFusion(dim).to(
+                next(sub.parameters()).device))
+        _log(f"ablation=no_agfm: replaced {len(targets)} GatedSkipFusion → PlainSkipFusion")
         return model
 
     if ablation == "no_dual_group":
