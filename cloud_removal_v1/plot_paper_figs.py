@@ -184,8 +184,8 @@ def _resolve_figs(spec: str) -> List[int]:
     from 'all' until the F-series runs are complete; pass
     ``--figs 5`` explicitly to render it from a single F_plain run.
     """
-    valid    = {2, 3, 4, 5, 6, 7, 9, 10}
-    in_all   = {2, 3, 4, 6, 7, 9, 10}        # excludes 5 (federated)
+    valid    = {2, 3, 4, 5, 6, 7, 8, 9, 10}
+    in_all   = {2, 3, 4, 6, 7, 8, 9, 10}        # excludes 5 (federated)
     if spec.strip().lower() == "all":
         return sorted(in_all)
     out: List[int] = []
@@ -907,9 +907,9 @@ def fig5_federated_curves(args, out_dir: Path) -> None:
     outputs_v2 = Path(args.outputs_v2)
 
     spec = [
-        (args.run_f_snn,   "F-SNN (OrbitVLIF)",      PALETTE_BLUE,   "o"),
-        (args.run_f_ann,   "F-ANN (OrbitVLIF-ANN)",  PALETTE_ORANGE, "s"),
-        (args.run_f_plain, "F-Plain (PlainUNet)",    PALETTE_GREEN,  "D"),
+        (args.run_f_snn,   "OrbitALIF",  PALETTE_BLUE,   "o"),
+        (args.run_f_ann,   "OrbitANN",   PALETTE_ORANGE, "s"),
+        (args.run_f_plain, "OrbitUnet",  PALETTE_GREEN,  "D"),
     ]
 
     drawn: List[Tuple[str, np.ndarray, np.ndarray]] = []   # (label, rounds, comm_cum_MB)
@@ -1079,12 +1079,9 @@ def fig6_energy_bars(args, out_dir: Path) -> None:
     ac_pj   = float(cfg.get("ac_pj_per_op",   0.077) or 0.077)
 
     bars = [
-        (f"ANN baseline\n({ann_pj:.1f} pJ/MAC)",           ann,   PALETTE_ORANGE,
+        (f"ANN baseline\n({ann_pj:.1f} pJ/MAC)", ann, PALETTE_ORANGE,
             dict(edgecolor="black", linewidth=0.6)),
-        (f"SNN upper\n(MAC × $r$ × {ann_pj:.1f}\\,pJ)",    upper, PALETTE_BLUE,
-            dict(edgecolor=PALETTE_BLUE, linewidth=0.6,
-                 linestyle="--", facecolor="white", hatch="///")),
-        (f"SNN lower\n(MAC × $r$ × {ac_pj*1000:.0f}\\,fJ/SOP)", lower, PALETTE_BLUE,
+        (f"SNN\n(MAC × $r$ × {ac_pj*1000:.0f}\\,fJ/SOP)", lower, PALETTE_BLUE,
             dict(edgecolor="black", linewidth=0.6)),
     ]
 
@@ -1284,6 +1281,68 @@ def _short_layer_name(full: str, max_len: int = 14) -> str:
         # keep the last two qualified pieces (e.g. encoder_level1.0.conv1 → l1.0.conv1)
         return ".".join(parts[-3:]) if len(parts) >= 3 else ".".join(parts[-2:])
     return full[:max_len]
+
+
+def fig8_alpha_curves(args, out_dir: Path) -> None:
+    """SNN vs ANN federated PSNR-vs-round across two Dirichlet alphas.
+
+    Reads four NPZ runs (any subset is OK, missing runs are skipped)::
+
+        v2a_F_snn_fedbn_Gossip_Averaging.npz           (SNN, alpha=0.1)
+        v2a_F_snn_alpha001_fedbn_Gossip_Averaging.npz  (SNN, alpha=0.01)
+        v2a_F_ann_fedbn_Gossip_Averaging.npz           (ANN, alpha=0.1)
+        v2a_F_ann_alpha001_fedbn_Gossip_Averaging.npz  (ANN, alpha=0.01)
+
+    Colour separates SNN (blue) from ANN (orange); line style separates
+    alpha=0.1 (solid) from alpha=0.01 (dashed).  This makes the
+    backbone-vs-skew interaction readable on a single axis.
+    """
+    _setup_mpl()
+    import matplotlib.pyplot as plt
+
+    outputs_v2 = Path(args.outputs_v2)
+
+    # ANN single-satellite robustness: train OrbitANN on the satellite
+    # holding the largest Dirichlet slice, sweep alpha.  Two curves only.
+    spec = [
+        (r"\textsc{OrbitANN}, $\alpha=0.1$",  "single_ann_alpha01",   PALETTE_ORANGE, "-"),
+        (r"\textsc{OrbitANN}, $\alpha=0.01$", "single_ann_alpha001",  PALETTE_ORANGE, "--"),
+    ]
+
+    drawn: List[tuple] = []
+    for label, run_name, color, ls in spec:
+        d = load_federated_npz(outputs_v2, run_name)
+        if d is None:
+            continue
+        rounds = np.asarray(d["epochs"], dtype=float)
+        psnr = np.asarray(d["eval_psnr"], dtype=float)
+        rounds, psnr = _finite(rounds, psnr)
+        if rounds.size == 0:
+            continue
+        drawn.append((label, rounds, psnr, color, ls))
+
+    if not drawn:
+        _warn("fig8: all alpha-sweep runs missing, skipped")
+        return
+
+    fig, ax = plt.subplots(figsize=(3.5, 2.4))
+    legend_handles, legend_labels = [], []
+    for label, rounds, psnr, color, ls in drawn:
+        psnr_s = _smooth(psnr, w=9)
+        ln, = ax.plot(rounds, psnr_s, color=color, linewidth=1.3,
+                      linestyle=ls)
+        legend_handles.append(ln)
+        legend_labels.append(label)
+
+    ax.set_xlabel("Communication round")
+    ax.set_ylabel("PSNR (dB)")
+    ax.legend(legend_handles, legend_labels, loc="lower right",
+              ncol=1, fontsize=7)
+    ax.margins(x=0.02)
+
+    fig.tight_layout(pad=0.3)
+    _save_pdf(fig, out_dir / "fig8_alpha_curves.pdf")
+    plt.close(fig)
 
 
 def fig9_per_layer_spike_rate(args, out_dir: Path) -> None:
@@ -1706,6 +1765,7 @@ _FIG_REGISTRY = {
     5:  ("fig5_federated_curves",        "fig5_federated_curves.pdf"),
     6:  ("fig6_energy_bars",             "fig6_energy_bars.pdf"),
     7:  ("fig7_centralized_4panel",      "fig7_centralized_4panel.pdf"),
+    8:  ("fig8_alpha_curves",            "fig8_alpha_curves.pdf"),
     9:  ("fig9_per_layer_spike_rate",    "fig9_per_layer_spike_rate.pdf"),
     # fig10 (r-histogram) intentionally removed from default `--figs all`
     # output: the strongly right-skewed real distribution exposes that
@@ -1733,6 +1793,7 @@ def main(argv=None) -> None:
         5:  fig5_federated_curves,
         6:  fig6_energy_bars,
         7:  fig7_centralized_4panel,
+        8:  fig8_alpha_curves,
         9:  fig9_per_layer_spike_rate,
         # 10: fig10_spike_rate_histogram,  # intentionally disabled — see _FIG_REGISTRY
     }
