@@ -1127,9 +1127,10 @@ def fig6_energy_bars(args, out_dir: Path) -> None:
 
         if value > 0:
             txt = _fmt_pj(value)
-            if ann > 0 and i != 0:
-                # Keep the "X× lower" annotation as the headline number
-                # of the figure; consistent with §V's "72× reduction".
+            # Only the last bar (OrbitALIF) carries the X-lower ratio,
+            # so the headline "72× lower" reads cleanly without the
+            # smaller OrbitUnet ratio competing for attention.
+            if ann > 0 and i == len(bars) - 1:
                 ratio = ann / value
                 if ratio >= 10:
                     txt += f"\n({ratio:.0f}× lower)"
