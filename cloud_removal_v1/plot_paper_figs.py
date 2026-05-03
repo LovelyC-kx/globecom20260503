@@ -1126,7 +1126,16 @@ def fig6_energy_bars(args, out_dir: Path) -> None:
         ax.bar(i, plot_v, **kwargs)
 
         if value > 0:
-            ax.text(i, plot_v, _fmt_pj(value), ha="center", va="bottom",
+            txt = _fmt_pj(value)
+            if ann > 0 and i != 0:
+                # Keep the "X× lower" annotation as the headline number
+                # of the figure; consistent with §V's "72× reduction".
+                ratio = ann / value
+                if ratio >= 10:
+                    txt += f"\n({ratio:.0f}× lower)"
+                else:
+                    txt += f"\n({ratio:.2f}× lower)"
+            ax.text(i, plot_v, txt, ha="center", va="bottom",
                     fontsize=7.5, fontweight="bold")
         else:
             ax.text(i, floor, "n/a", ha="center", va="bottom",
