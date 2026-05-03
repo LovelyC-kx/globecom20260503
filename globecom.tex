@@ -691,18 +691,25 @@ PlainUNet (baseline)    & 22.012          & 0.6819          & 8{,}420  \\
 \label{sec:exp-heterogeneity}
 % ---------------------------------------------------------------------
 
-Different orbital planes observe different cloud climatologies.
-We sweep Dirichlet $\alpha$ from $0.1$ to $0.01$ — a tenfold
-tightening — and measure PSNR degradation. \OrbitALIF{}-SNN
-degrades by only $-0.126$\,dB ($21.886\to21.760$\,dB). Keeping
-both BN and \TDBN\ parameters local under \textsc{FedBN} prevents
-normalization statistics from mixing across climatologically
-distinct planes, absorbing the additional skew without re-tuning.
-The $2.86$\,dB centralized-to-federated gap on PlainUNet reflects
-the partition difficulty itself: under $\alpha\!=\!0.1$, 30 of 50
-satellites hold only the five-tile floor, so any aggregation rule
-faces severely imbalanced coverage. \OrbitALIF{} narrows this gap
-through the richer per-satellite representations of \DFRB\ and
+Different orbital planes observe different cloud climatologies, so
+we tighten the Dirichlet partition tenfold from $\alpha\!=\!0.1$ to
+$\alpha\!=\!0.01$ and measure how each backbone reacts.
+\OrbitALIF{}-SNN degrades by only $-0.126$\,dB
+($21.886\!\to\!21.760$\,dB), for two compounding reasons. First,
+keeping both BN and \TDBN\ parameters plane-local under
+\textsc{FedBN} prevents normalization statistics from mixing across
+climatologically distinct planes. Second, event-driven SNN inference
+is invariant to input shifts that remain below the firing threshold,
+so a moderate climatology drift does not cascade into the spike
+representation.
+
+By contrast, the $2.86$\,dB centralized-to-federated gap of
+PlainUNet at $\alpha\!=\!0.1$ reflects the partition difficulty
+itself: $30$ of the $50$ satellites hold only the five-tile floor,
+and a vanilla U-Net without \OrbitALIF{}'s multi-domain
+decomposition cannot compensate for this severely imbalanced
+per-satellite coverage. \OrbitALIF{} narrows the gap through the
+richer per-satellite representations produced by \DFRB\ and
 \SHAM.
 
 % ---------------------------------------------------------------------
