@@ -184,8 +184,8 @@ def _resolve_figs(spec: str) -> List[int]:
     from 'all' until the F-series runs are complete; pass
     ``--figs 5`` explicitly to render it from a single F_plain run.
     """
-    valid    = {2, 3, 4, 5, 6, 7, 9, 10}
-    in_all   = {2, 3, 4, 6, 7, 9, 10}        # excludes 5 (federated)
+    valid    = {2, 3, 4, 5, 6, 7, 8, 9, 10}
+    in_all   = {2, 3, 4, 6, 7, 8, 9, 10}        # excludes 5 (federated)
     if spec.strip().lower() == "all":
         return sorted(in_all)
     out: List[int] = []
