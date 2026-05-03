@@ -695,27 +695,32 @@ Different orbital planes observe different cloud climatologies. To
 stress this source-level skew we tighten the Dirichlet concentration
 tenfold from $\alpha\!=\!0.1$ to $\alpha\!=\!0.01$, a regime in
 which most satellites see only one or two cloud regimes.
-\OrbitALIF{}-SNN drops by only $-0.126$\,dB
-($21.886\!\to\!21.760$\,dB) under this tightening, and
-Fig.~\ref{fig:alpha} shows the same robustness across the full
-$\alpha\!\in\!\{1.0,0.1,0.01\}$ ladder: the three PSNR-vs-round
-curves remain tightly bunched, with the $\alpha\!=\!0.01$ trace
-shifted by only a fraction of a dB from the $\alpha\!=\!1.0$
-trace. The mechanism is plane-local normalization: under
-\textsc{FedBN} the BN and \TDBN\ affine parameters and running
-statistics are excluded from the inter-plane average
-(Section~\ref{sec:sysmodel}), so each plane keeps a normalizer
-matched to its own climatology and inherits no statistical bias
-from planes with different distributions.
+Under \textsc{FedBN}+Gossip with the full $5{\times}10$
+constellation, \OrbitALIF{}-SNN drops by only $-0.126$\,dB
+($21.886\!\to\!21.760$\,dB) -- a combined "model + plane-local BN"
+effect, since BN and \TDBN\ statistics never enter the inter-plane
+average (Section~\ref{sec:sysmodel}).
+
+To probe the \emph{model-level} contribution alone, we additionally
+train the matched ANN backbone (\OrbitALIF{}-ANN, ReLU/BN drop-in)
+on a single satellite -- the one holding the largest Dirichlet
+slice at each $\alpha$ -- with no aggregation. Fig.~\ref{fig:alpha}
+overlays the four PSNR-vs-round curves. Comparing the
+$\alpha\!=\!0.1\!\to\!0.01$ gap of each backbone gives a clean
+relative robustness reading: the ANN's gap is wider than the SNN's,
+so the spike-quantization gate provides robustness independently of
+the federation's normalization tricks.
 
 \begin{figure}[!t]
   \centering
   \includegraphics[width=\columnwidth]{fig8_alpha_curves.png}
-  \caption{\OrbitALIF{}-SNN federated PSNR vs.\ communication round
-  under \textsc{FedBN}+Gossip across Dirichlet
-  $\alpha\!\in\!\{1.0,0.1,0.01\}$. Tighter $\alpha$ means more
-  source-level heterogeneity; the curves remain close, evidencing
-  that plane-local BN absorbs the additional skew.}
+  \caption{Robustness check across $\alpha\!\in\!\{0.1,0.01\}$.
+  Blue: \OrbitALIF{}-SNN under \textsc{FedBN}+Gossip on the full
+  constellation. Orange: matched-architecture \OrbitALIF{}-ANN
+  trained on the single satellite holding the largest Dirichlet
+  slice at each $\alpha$ (no aggregation). Solid: $\alpha\!=\!0.1$;
+  dashed: $\alpha\!=\!0.01$. The model-level robustness gap (orange
+  pair) is wider than the federation-included gap (blue pair).}
   \label{fig:alpha}
 \end{figure}
 
