@@ -49,7 +49,39 @@ from cloud_removal_v2.run_smoke import (
 )
 from cloud_removal_v2.dataset import build_plane_satellite_partitions_v2
 from cloud_removal_v1.task import CloudRemovalSNNTask
-from cloud_removal_v1.evaluation import evaluate_centerpatch
+from cloud_removal_v1.evaluation import (
+    evaluate_centerpatch, EvalResult, _torch_psnr, _torch_ssim, _center_crop,
+)
+
+
+@torch.no_grad()
+def _evaluate_batch_bn(model: torch.nn.Module,
+                       loader,
+                       patch_size: int,
+                       device: torch.device) -> "EvalResult":
+    """Single-sat BN-poisoning workaround: evaluate with model in train()
+    mode so BN uses *batch* statistics rather than the running stats that
+    accumulated on the lone training satellite's distribution.  Otherwise
+    eval-mode BN normalisation pushes test inputs into a distribution the
+    network was not trained on, producing NaN predictions even when the
+    training loss is healthy.
+    """
+    from spikingjelly.activation_based import functional
+    model.train()                 # IMPORTANT: not eval()
+    res = EvalResult()
+    for batch in loader:
+        cloudy, clear = batch
+        cloudy = cloudy.to(device, non_blocking=True)
+        clear  = clear.to(device,  non_blocking=True)
+        cloudy = _center_crop(cloudy, patch_size)
+        clear  = _center_crop(clear,  patch_size)
+        functional.reset_net(model)
+        pred = model(cloudy)
+        functional.reset_net(model)
+        for i in range(pred.shape[0]):
+            res.psnr_per_image.append(_torch_psnr(pred[i], clear[i]).item())
+            res.ssim_per_image.append(_torch_ssim(pred[i], clear[i]).item())
+    return res
 
 
 def _parse(argv=None) -> argparse.Namespace:
@@ -163,10 +195,13 @@ def _run_one(args: argparse.Namespace,
     _log(f"chosen satellite: plane={plane_idx} sat={sat_idx} "
          f"size={n_chosen} (alpha={args.partition_alpha})")
 
-    # --- 3. Test loader (same as federated) -----------------------------
+    # --- 3. Test loader -------------------------------------------------
+    # Larger eval batch than the federated default (1) so that the
+    # batch-statistics BN workaround above sees enough samples to give
+    # meaningful means/vars.  drop_last=False to keep every test image.
     test_loader = DataLoader(
         test_ms,
-        batch_size=args.test_batch_size,
+        batch_size=max(8, args.test_batch_size),
         shuffle=False,
         num_workers=args.num_workers,
         pin_memory=True,
@@ -213,7 +248,7 @@ def _run_one(args: argparse.Namespace,
         do_eval = (ep % eval_every == 0) or (ep == args.num_epoch)
         if do_eval:
             try:
-                res = evaluate_centerpatch(
+                res = _evaluate_batch_bn(
                     task.model, test_loader,
                     patch_size=args.eval_patch_size, device=device,
                 )
@@ -238,7 +273,20 @@ def _run_one(args: argparse.Namespace,
              f"PSNR={psnr:.3f}dB  SSIM={ssim:.4f}  "
              f"wall={history['wall_seconds'][-1]:.1f}s")
 
-    # --- 6. Persist in federated-compatible NPZ -------------------------
+    # --- 6. Save final model checkpoint (so eval can be redone offline
+    #        if the live PSNR trace turns out to be unreliable) ---------
+    ckpt_dir = Path(args.output_dir)
+    ckpt_dir.mkdir(parents=True, exist_ok=True)
+    ckpt_path = ckpt_dir / f"v2a_{args.run_name}_final.pt"
+    torch.save({
+        "state_dict": task.model.state_dict(),
+        "config":     vars(args),
+        "plane_idx":  plane_idx,
+        "sat_idx":    sat_idx,
+    }, ckpt_path)
+    _log(f"wrote ckpt {ckpt_path}")
+
+    # --- 7. Persist in federated-compatible NPZ -------------------------
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     npz_path = out_dir / f"v2a_{args.run_name}_fedbn_Gossip_Averaging.npz"
