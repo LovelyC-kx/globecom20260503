@@ -75,6 +75,12 @@ def _parse(argv=None) -> argparse.Namespace:
     extra.add_argument("--run_name_prefix", type=str, default="single",
                        help="Used only with --alphas to build per-alpha "
                             "run_name = <prefix>_<backbone>_alpha<tag>.")
+    # Convenience overrides for the v2 defaults that parse_v2a_cli does
+    # not expose directly; left as None so the V2A_DEFAULTS value is
+    # honoured when the user does not pass them.
+    extra.add_argument("--intra_plane_iters", type=int, default=None)
+    extra.add_argument("--local_iters",       type=int, default=None)
+    extra.add_argument("--warmup_epochs",     type=int, default=None)
     extra_ns, remaining = extra.parse_known_args(argv)
 
     base_ns = parse_v2a_cli(remaining)
@@ -83,6 +89,12 @@ def _parse(argv=None) -> argparse.Namespace:
     base_ns.eval_patch_size = extra_ns.eval_patch_size
     base_ns.alphas          = extra_ns.alphas
     base_ns.run_name_prefix = extra_ns.run_name_prefix
+    if extra_ns.intra_plane_iters is not None:
+        base_ns.intra_plane_iters = extra_ns.intra_plane_iters
+    if extra_ns.local_iters is not None:
+        base_ns.local_iters = extra_ns.local_iters
+    if extra_ns.warmup_epochs is not None:
+        base_ns.warmup_epochs = extra_ns.warmup_epochs
     return base_ns
 
 
