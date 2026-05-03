@@ -691,26 +691,36 @@ PlainUNet (baseline)    & 22.012          & 0.6819          & 8{,}420  \\
 \label{sec:exp-heterogeneity}
 % ---------------------------------------------------------------------
 
-Different orbital planes observe different cloud climatologies, so
-we tighten the Dirichlet partition tenfold from $\alpha\!=\!0.1$ to
-$\alpha\!=\!0.01$ and measure how each backbone reacts.
-\OrbitALIF{}-SNN degrades by only $-0.126$\,dB
-($21.886\!\to\!21.760$\,dB), for two compounding reasons. First,
-keeping both BN and \TDBN\ parameters plane-local under
-\textsc{FedBN} prevents normalization statistics from mixing across
-climatologically distinct planes. Second, event-driven SNN inference
-is invariant to input shifts that remain below the firing threshold,
-so a moderate climatology drift does not cascade into the spike
-representation.
+Different orbital planes observe different cloud climatologies. To
+stress this source-level skew we tighten the Dirichlet concentration
+tenfold from $\alpha\!=\!0.1$ to $\alpha\!=\!0.01$, a regime in
+which most satellites see only one or two cloud regimes.
+\OrbitALIF{}-SNN nevertheless drops by only $-0.126$\,dB
+($21.886\!\to\!21.760$\,dB). Two design choices explain this
+robustness:
+\begin{itemize}
+    \item \emph{Plane-local BN.} Under \textsc{FedBN}, the BN and
+    \TDBN\ affine parameters and running statistics never enter the
+    inter-plane average (Section~\ref{sec:sysmodel}). Each plane
+    therefore keeps a normalizer matched to its own climatology, and
+    no statistical bias is imported from planes that observe a
+    different distribution.
+    \item \emph{Sub-threshold invariance.} An \FQS-LIF\ neuron emits
+    no spike when the membrane potential stays below the firing
+    threshold. A small per-plane shift in input intensity that does
+    not push the membrane across that threshold leaves the spike
+    pattern -- and hence every downstream feature -- unchanged.
+\end{itemize}
 
-By contrast, the $2.86$\,dB centralized-to-federated gap of
-PlainUNet at $\alpha\!=\!0.1$ reflects the partition difficulty
-itself: $30$ of the $50$ satellites hold only the five-tile floor,
-and a vanilla U-Net without \OrbitALIF{}'s multi-domain
-decomposition cannot compensate for this severely imbalanced
-per-satellite coverage. \OrbitALIF{} narrows the gap through the
-richer per-satellite representations produced by \DFRB\ and
-\SHAM.
+PlainUNet enjoys neither property. At $\alpha\!=\!0.1$ its
+centralized-to-federated PSNR drops by $2.86$\,dB, almost entirely a
+partition-difficulty effect: under this skew $30$ of the $50$
+satellites hold only the five-tile floor, so any aggregation rule
+must reconcile severely imbalanced per-satellite coverage. Without
+\OrbitALIF{}'s multi-domain decomposition (\DFRB{} and \SHAM{}), a
+vanilla U-Net cannot recover the missing coverage from co-orbiting
+peers. The richer per-satellite representations of \OrbitALIF{}
+narrow this gap.
 
 % ---------------------------------------------------------------------
 \subsection{End-to-End Onboard Federated Cloud Removal}
