@@ -1085,7 +1085,7 @@ def fig6_energy_bars(args, out_dir: Path) -> None:
     ac_pj   = float(cfg.get("ac_pj_per_op",   0.077) or 0.077)
 
     bars = [
-        (f"OrbitANN\n({ann_pj:.1f} pJ/MAC)", ann, PALETTE_ORANGE,
+        ("OrbitANN", ann, PALETTE_ORANGE,
             dict(edgecolor="black", linewidth=0.6)),
     ]
 
@@ -1101,14 +1101,13 @@ def fig6_energy_bars(args, out_dir: Path) -> None:
                                             .get("energy_ann_pj", 0.0) or 0.0)
             if plain_ann > 0:
                 bars.append(
-                    (f"OrbitUnet\n({ann_pj:.1f} pJ/MAC)", plain_ann,
-                     PALETTE_GREEN,
+                    ("OrbitUnet", plain_ann, PALETTE_GREEN,
                      dict(edgecolor="black", linewidth=0.6)),
                 )
 
     bars.append(
-        (f"OrbitALIF\n(MAC × $r$ × {ac_pj*1000:.0f}\\,fJ/SOP)", lower,
-         PALETTE_BLUE, dict(edgecolor="black", linewidth=0.6)),
+        ("OrbitALIF", lower, PALETTE_BLUE,
+         dict(edgecolor="black", linewidth=0.6)),
     )
 
     fig, ax = plt.subplots(figsize=FIG_SINGLE_COL)
@@ -1127,17 +1126,7 @@ def fig6_energy_bars(args, out_dir: Path) -> None:
         ax.bar(i, plot_v, **kwargs)
 
         if value > 0:
-            txt = _fmt_pj(value)
-            if ann > 0 and i != 0:
-                # Show reduction factor (ANN / SNN) consistent with §V
-                # ("72× reduction") rather than the fraction (0.01× ANN)
-                # which reads as a small advantage at first glance.
-                ratio = ann / value
-                if ratio >= 10:
-                    txt += f"\n({ratio:.0f}× lower)"
-                else:
-                    txt += f"\n({ratio:.2f}× lower)"
-            ax.text(i, plot_v, txt, ha="center", va="bottom",
+            ax.text(i, plot_v, _fmt_pj(value), ha="center", va="bottom",
                     fontsize=7.5, fontweight="bold")
         else:
             ax.text(i, floor, "n/a", ha="center", va="bottom",
