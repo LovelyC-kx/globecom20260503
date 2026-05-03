@@ -83,7 +83,8 @@ def shadow_rect(ax, x, y, w, h, radius=0.05, dx=0.04, dy=-0.04, zorder=1):
 
 def fancy_block(ax, x, y, w, h, title, subtitle=None, color=C_BLUE, *,
                 radius=0.06, fontsize=7.0, subfontsize=5.2, zorder=3,
-                bold=True, shadow=True):
+                bold=True, shadow=True, corner_tag=None,
+                corner_tag_color=C_RED, corner_tag_size=4.4):
     if shadow:
         shadow_rect(ax, x, y, w, h, radius=radius, zorder=zorder-1)
     ax.add_patch(FancyBboxPatch(
@@ -99,6 +100,11 @@ def fancy_block(ax, x, y, w, h, title, subtitle=None, color=C_BLUE, *,
         ax.text(x+w/2, y+h/2-0.10, subtitle, ha="center", va="center",
                 fontsize=subfontsize, color=darken(color, 0.20),
                 alpha=0.92, zorder=zorder+1)
+    if corner_tag:
+        ax.text(x+w-0.03, y+h-0.04, corner_tag,
+                ha="right", va="top",
+                fontsize=corner_tag_size, fontweight="bold",
+                color=corner_tag_color, zorder=zorder+2)
 
 
 def tensor_3d(ax, cx, cy, fw, fh, depth, color=C_BLUE, *,
@@ -243,7 +249,8 @@ def _panel_architecture(ax):
     fancy_block(ax, X_E1-DIM_E1[0]/2, Y_ENC-DIM_E1[1]/2,
                 DIM_E1[0], DIM_E1[1],
                 title="Enc-L1", subtitle="SSHB\n$C{=}24$",
-                color=C_BLUE, fontsize=6.6, subfontsize=5.2)
+                color=C_BLUE, fontsize=6.6, subfontsize=5.2,
+                corner_tag="+S +X")
 
     tensor_3d(ax, (X_E1+X_E2)/2, Y_ENC,
               FM_48[0], FM_48[1], FM_48[2], C_BLUE,
@@ -254,7 +261,8 @@ def _panel_architecture(ax):
     fancy_block(ax, X_E2-DIM_E2[0]/2, Y_ENC-DIM_E2[1]/2,
                 DIM_E2[0], DIM_E2[1],
                 title="Enc-L2", subtitle="2×DFRB\n$C{=}48$",
-                color=C_BLUE, fontsize=6.4, subfontsize=4.9)
+                color=C_BLUE, fontsize=6.4, subfontsize=4.9,
+                corner_tag="+S +X")
 
     tensor_3d(ax, (X_E2+X_E3)/2, Y_ENC,
               FM_96[0], FM_96[1], FM_96[2], C_BLUE,
@@ -265,7 +273,8 @@ def _panel_architecture(ax):
     fancy_block(ax, X_E3-DIM_E3[0]/2, Y_ENC-DIM_E3[1]/2,
                 DIM_E3[0], DIM_E3[1],
                 title="Enc-L3", subtitle="4×DFRB\n$C{=}96$",
-                color=C_BLUE, fontsize=6.3, subfontsize=4.9)
+                color=C_BLUE, fontsize=6.3, subfontsize=4.9,
+                corner_tag="+S +X")
 
     # ── "No bottleneck" U-bend (right side) ──────────────────────────────────
     xe3r  = X_E3 + DIM_E3[0]/2
@@ -286,7 +295,8 @@ def _panel_architecture(ax):
     fancy_block(ax, X_E3-DIM_E3[0]/2, Y_DEC-DIM_E3[1]/2,
                 DIM_E3[0], DIM_E3[1],
                 title="Dec-L3", subtitle="2×DFRB\n$C{=}96$",
-                color=C_ORANGE, fontsize=6.3, subfontsize=4.9)
+                color=C_ORANGE, fontsize=6.3, subfontsize=4.9,
+                corner_tag="+S +X")
 
     tensor_3d(ax, (X_E3+X_E2)/2, Y_DEC,
               FM_48[0], FM_48[1], FM_48[2], C_ORANGE)
@@ -296,7 +306,8 @@ def _panel_architecture(ax):
     fancy_block(ax, X_E2-DIM_E2[0]/2, Y_DEC-DIM_E2[1]/2,
                 DIM_E2[0], DIM_E2[1],
                 title="Dec-L2", subtitle="2×DFRB\n$C{=}48$",
-                color=C_ORANGE, fontsize=6.4, subfontsize=4.9)
+                color=C_ORANGE, fontsize=6.4, subfontsize=4.9,
+                corner_tag="+S +X")
 
     tensor_3d(ax, (X_E2+X_E1)/2, Y_DEC,
               FM_24[0], FM_24[1], FM_24[2], C_ORANGE)
@@ -306,7 +317,8 @@ def _panel_architecture(ax):
     fancy_block(ax, X_E1-DIM_E1[0]/2, Y_DEC-DIM_E1[1]/2,
                 DIM_E1[0], DIM_E1[1],
                 title="Dec-L1①", subtitle="SSHB\n$C{=}24$",
-                color=C_ORANGE, fontsize=6.4, subfontsize=5.0)
+                color=C_ORANGE, fontsize=6.4, subfontsize=5.0,
+                corner_tag="+S +X")
 
     tensor_3d(ax, (X_E1+X_D1B)/2, Y_DEC,
               FM_24[0], FM_24[1], FM_24[2], C_ORANGE)
@@ -314,7 +326,8 @@ def _panel_architecture(ax):
     fancy_block(ax, X_D1B-DIM_E1[0]/2, Y_DEC-DIM_E1[1]/2,
                 DIM_E1[0], DIM_E1[1],
                 title="Dec-L1②", subtitle="SSHB\n$C{=}24$",
-                color=C_ORANGE, fontsize=6.4, subfontsize=5.0)
+                color=C_ORANGE, fontsize=6.4, subfontsize=5.0,
+                corner_tag="+S +X")
     ax.text(X_D1B, Y_DEC+DIM_E1[1]/2+0.11,
             "extra refinement",
             ha="center", va="bottom", fontsize=4.2,
@@ -364,12 +377,20 @@ def _panel_architecture(ax):
     skip_with_gate(ax, x=X_E2,
                    y_top=Y_ENC - DIM_E2[1]/2 - 0.02,
                    y_bot=Y_DEC + DIM_E2[1]/2 + 0.02,
-                   gate_label="AGFM", color=C_PURPLE, lw=0.8)
+                   gate_label="AGFM", color=C_RED, lw=0.9)
 
     skip_with_gate(ax, x=X_E1,
                    y_top=Y_ENC - DIM_E1[1]/2 - 0.02,
                    y_bot=Y_DEC + DIM_E1[1]/2 + 0.02,
-                   gate_label="AGFM", color=C_PURPLE, lw=0.8)
+                   gate_label="AGFM", color=C_RED, lw=0.9)
+
+    # AGFM equation under the L1 diamond (single annotation covers both)
+    ax.text(X_E1, (Y_ENC + Y_DEC)/2 - 0.34,
+            r"$g\!=\!\sigma(\mathrm{Conv}_{1\!\times\!1}[\mathrm{dec};\mathrm{enc}])$"
+            "\n"
+            r"$\mathrm{out}\!=\!g\!\cdot\!\mathrm{dec}+(1\!-\!g)\!\cdot\!\mathrm{enc}$",
+            ha="center", va="center", fontsize=4.2,
+            color=darken(C_RED, 0.20), zorder=6)
 
     # Global residual
     ax.annotate("",
@@ -381,6 +402,15 @@ def _panel_architecture(ax):
     ax.text(X_IN-0.18, (Y_ENC+Y_DEC)/2,
             "global\nresidual", ha="right", va="center",
             fontsize=4.2, color=C_GRAY, zorder=2)
+
+    # Footnote: legend for the three new red elements (+S, +X, AGFM)
+    ax.text(0.22, 1.85,
+            r"$\mathrm{\bf +S}$ = SHAM (spectral-hybrid attention),  "
+            r"$\mathrm{\bf +X}$ = X-gate (cross-scale gate),  "
+            r"$\mathbf{\diamond}$ = AGFM."
+            "  See Fig.~2 for module internals.",
+            ha="left", va="center",
+            fontsize=4.6, color=darken(C_RED, 0.10), zorder=6)
 
 
 # ---------------------------------------------------------------------------
