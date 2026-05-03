@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 import time
 from pathlib import Path
 from typing import Dict, List
@@ -28,6 +29,16 @@ from typing import Dict, List
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
+
+# Enable both `python -m cloud_removal_v2.run_single_sat` and the
+# repo-root `python cloud_removal_v2/run_single_sat.py` invocation
+# style: in the latter case __package__ is empty and the repo root is
+# not yet on sys.path, so `import cloud_removal_v2.config` would fail.
+if __package__ in (None, ""):
+    _this = Path(__file__).resolve()
+    _parent = _this.parent.parent
+    if str(_parent) not in sys.path:
+        sys.path.insert(0, str(_parent))
 
 # Reuse the v2 config parser + dataset builders to keep parity with
 # the federated runs (same Dirichlet seed, same augment params, etc.).
