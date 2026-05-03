@@ -695,32 +695,24 @@ Different orbital planes observe different cloud climatologies. To
 stress this source-level skew we tighten the Dirichlet concentration
 tenfold from $\alpha\!=\!0.1$ to $\alpha\!=\!0.01$, a regime in
 which most satellites see only one or two cloud regimes.
-\OrbitALIF{}-SNN nevertheless drops by only $-0.126$\,dB
-($21.886\!\to\!21.760$\,dB). Two design choices explain this
-robustness:
-\begin{itemize}
-    \item \emph{Plane-local BN.} Under \textsc{FedBN}, the BN and
-    \TDBN\ affine parameters and running statistics never enter the
-    inter-plane average (Section~\ref{sec:sysmodel}). Each plane
-    therefore keeps a normalizer matched to its own climatology, and
-    no statistical bias is imported from planes that observe a
-    different distribution.
-    \item \emph{Sub-threshold invariance.} An \FQS-LIF\ neuron emits
-    no spike when the membrane potential stays below the firing
-    threshold. A small per-plane shift in input intensity that does
-    not push the membrane across that threshold leaves the spike
-    pattern -- and hence every downstream feature -- unchanged.
-\end{itemize}
+\OrbitALIF{}-SNN drops by only $-0.126$\,dB
+($21.886\!\to\!21.760$\,dB) under this tightening. The mechanism is
+plane-local normalization: under \textsc{FedBN} the BN and \TDBN\
+affine parameters and running statistics are excluded from the
+inter-plane average (Section~\ref{sec:sysmodel}), so each plane
+keeps a normalizer matched to its own climatology and inherits no
+statistical bias from planes with different distributions.
 
-PlainUNet enjoys neither property. At $\alpha\!=\!0.1$ its
-centralized-to-federated PSNR drops by $2.86$\,dB, almost entirely a
-partition-difficulty effect: under this skew $30$ of the $50$
-satellites hold only the five-tile floor, so any aggregation rule
-must reconcile severely imbalanced per-satellite coverage. Without
-\OrbitALIF{}'s multi-domain decomposition (\DFRB{} and \SHAM{}), a
-vanilla U-Net cannot recover the missing coverage from co-orbiting
-peers. The richer per-satellite representations of \OrbitALIF{}
-narrow this gap.
+Even at the milder $\alpha\!=\!0.1$, the partition difficulty alone
+is severe: $30$ of the $50$ satellites hold only the five-tile
+floor of the Dirichlet split, so each satellite trains on a narrow
+slice of the data. PlainUNet -- the same \textsc{FedBN}+Gossip
+protocol but a vanilla U-Net backbone -- loses $2.86$\,dB from
+centralized to federated training, illustrating the cost of this
+imbalance. \OrbitALIF{} narrows the same gap through the richer
+per-satellite representations produced by \DFRB\ and \SHAM, which
+are still trained federatedly but extract more from each
+satellite's limited tile budget.
 
 % ---------------------------------------------------------------------
 \subsection{End-to-End Onboard Federated Cloud Removal}
