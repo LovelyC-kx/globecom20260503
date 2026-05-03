@@ -89,7 +89,12 @@ def _parse(argv=None) -> argparse.Namespace:
 
     Keeps parity with federated runs: every v2-A knob is honoured.
     """
-    extra = argparse.ArgumentParser(add_help=False)
+    # allow_abbrev=False is critical: with the default True, argparse
+    # would prefix-match "--run_name" against our "--run_name_prefix"
+    # flag and silently consume the value, leaving parse_v2a_cli to
+    # fall back to its "v2a" default for run_name.  That produced the
+    # garbled "v2a_v2a_*.npz" filenames in the first sweep.
+    extra = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
     extra.add_argument("--plane_idx", type=int, default=-1,
                        help="Pin the chosen satellite's plane index. "
                             "Default -1 = auto-pick (largest Dirichlet slice).")
