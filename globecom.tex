@@ -26,7 +26,10 @@
 \newcommand{\D}{\mathcal{D}}
 \newcommand{\Dir}{\mathrm{Dir}}
 \newcommand{\OrbitALIF}{\textsc{OrbitALIF}}
+\newcommand{\OrbitANN}{\textsc{OrbitANN}}
+\newcommand{\OrbitUnet}{\textsc{OrbitUnet}}
 \newcommand{\FQS}{5QS}
+\newcommand{\TDBN}{\textsc{TDBN}}
 \newcommand{\DFRB}{\textsc{DFRB}}
 \newcommand{\SHAM}{\textsc{SHAM}}
 \newcommand{\AGFM}{\textsc{AGFM}}
@@ -595,11 +598,11 @@ source domains used throughout.
 
 \noindent\textbf{Models.}
 Three matched-protocol backbones share the same aggregation pipeline.
-\textbf{\OrbitALIF{}-SNN} (ours) uses \FQS-LIF, \TDBN, $T\!=\!4$,
+\textbf{\OrbitALIF{}} (ours) uses \FQS-LIF, \TDBN, $T\!=\!4$,
 and base width $C\!=\!24$ ($2.30$\,M parameters).
-\textbf{\OrbitALIF{}-ANN} replaces every \FQS-LIF with ReLU and
+\textbf{\OrbitANN{}} replaces every \FQS-LIF with ReLU and
 every \TDBN\ with BN, keeping the same dataflow.
-\textbf{PlainUNet} is a vanilla U-Net used as the aggregation
+\textbf{\OrbitUnet{}} is a vanilla U-Net used as the aggregation
 baseline. Comparing all three under identical training and
 aggregation isolates the effect of the backbone alone.
 
@@ -626,7 +629,7 @@ with~\cite{ref:flsnn,ref:esdnet}.
 
 %As the first time to tackle Onboard Cloud Removal SNN federated learning architecture ，we need to %know if this network can achieve useful restoration quality
 %within satellite power constraints. We answer this by placing
-%\OrbitALIF{}-SNN alongside its ANN counterpart and the PlainUNet
+%\OrbitALIF{} alongside its ANN counterpart and the \OrbitUnet{}
 %baseline under identical centralized training, then measuring both
 %quality and energy.
 % ---------------------------------------------------------------------
@@ -637,21 +640,21 @@ with~\cite{ref:flsnn,ref:esdnet}.
 We deploy all three backbones on the $5{\times}10$ Walker-Star
 constellation under $R\!=\!200$ rounds of FedBN$+$Gossip with
 $\alpha\!=\!0.1$. Table~\ref{tab:federated} reports the results.
-\OrbitALIF{}-ANN reaches $22.679$\,dB, exceeding PlainUNet by
+\OrbitANN{} reaches $22.679$\,dB, exceeding \OrbitUnet{} by
 $+0.667$\,dB, confirming the multi-domain architecture brings a
 clear advantage even under decentralized training.
-\OrbitALIF{}-SNN sits $0.793$\,dB below its ANN counterpart
+\OrbitALIF{} sits $0.793$\,dB below its ANN counterpart
 ($21.886$\,dB) — this is the direct cost of spiking sparsity.
 The payoff is energy: as Figure~\ref{fig:energy} shows,
-\OrbitALIF{}-SNN consumes only $0.287$\,mJ per inference on
+\OrbitALIF{} consumes only $0.287$\,mJ per inference on
 neuromorphic hardware, a $72.3\times$ reduction
 over the ANN baseline at $20.75$\,mJ. On general-purpose CMOS
 the upper bound is $17.14$\,mJ, still a $1.21\times$ reduction.
 The MAC-weighted average non-zero rate is $0.826$ on CR1 and
 $0.823$ on CR2; per-layer analysis shows $20$--$70\%$ non-zero
 activation. At a $100$--$300$\,W satellite power budget, the
-$0.793$\,dB spiking cost is a worthwhile trade: \OrbitALIF{}-SNN
-remains within $0.126$\,dB of the PlainUNet ANN baseline while
+$0.793$\,dB spiking cost is a worthwhile trade: \OrbitALIF{}
+remains within $0.126$\,dB of the \OrbitUnet{} ANN baseline while
 consuming a fraction of its energy, making it the only viable
 option for onboard deployment.
 
@@ -679,9 +682,9 @@ inter-plane traffic over shared (non-BN) parameters.}
 \toprule
 Backbone & PSNR (dB) & SSIM & Comm.\ (MB) \\
 \midrule
-PlainUNet (baseline)    & 22.012          & 0.6819          & 8{,}420  \\
-\OrbitALIF{}-ANN        & \textbf{22.679} & \textbf{0.6966} & 14{,}777 \\
-\OrbitALIF{}-SNN (ours) & 21.886          & 0.6725          & 14{,}777 \\
+\OrbitUnet{} (baseline)    & 22.012          & 0.6819          & 8{,}420  \\
+\OrbitANN{}        & \textbf{22.679} & \textbf{0.6966} & 14{,}777 \\
+\OrbitALIF{} (ours) & 21.886          & 0.6725          & 14{,}777 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -696,13 +699,13 @@ stress this source-level skew we tighten the Dirichlet concentration
 tenfold from $\alpha\!=\!0.1$ to $\alpha\!=\!0.01$, a regime in
 which most satellites see only one or two cloud regimes.
 Under \textsc{FedBN}+Gossip with the full $5{\times}10$
-constellation, \OrbitALIF{}-SNN drops by only $-0.126$\,dB
+constellation, \OrbitALIF{} drops by only $-0.126$\,dB
 ($21.886\!\to\!21.760$\,dB) -- a combined "model + plane-local BN"
 effect, since BN and \TDBN\ statistics never enter the inter-plane
 average (Section~\ref{sec:sysmodel}).
 
 To probe the \emph{model-level} contribution alone, we additionally
-train the matched ANN backbone (\OrbitALIF{}-ANN, ReLU/BN drop-in)
+train the matched ANN backbone (\OrbitANN{}, ReLU/BN drop-in)
 on a single satellite -- the one holding the largest Dirichlet
 slice at each $\alpha$ -- with no aggregation. Fig.~\ref{fig:alpha}
 overlays the four PSNR-vs-round curves. Comparing the
@@ -715,8 +718,8 @@ the federation's normalization tricks.
   \centering
   \includegraphics[width=\columnwidth]{fig8_alpha_curves.png}
   \caption{Robustness check across $\alpha\!\in\!\{0.1,0.01\}$.
-  Blue: \OrbitALIF{}-SNN under \textsc{FedBN}+Gossip on the full
-  constellation. Orange: matched-architecture \OrbitALIF{}-ANN
+  Blue: \OrbitALIF{} under \textsc{FedBN}+Gossip on the full
+  constellation. Orange: matched-architecture \OrbitANN{}
   trained on the single satellite holding the largest Dirichlet
   slice at each $\alpha$ (no aggregation). Solid: $\alpha\!=\!0.1$;
   dashed: $\alpha\!=\!0.01$. The model-level robustness gap (orange
@@ -727,7 +730,7 @@ the federation's normalization tricks.
 Even at the milder $\alpha\!=\!0.1$, the partition difficulty alone
 is severe: $30$ of the $50$ satellites hold only the five-tile
 floor of the Dirichlet split, so each satellite trains on a narrow
-slice of the data. PlainUNet -- the same \textsc{FedBN}+Gossip
+slice of the data. \OrbitUnet{} -- the same \textsc{FedBN}+Gossip
 protocol but a vanilla U-Net backbone -- loses $2.86$\,dB from
 centralized to federated training, illustrating the cost of this
 imbalance. \OrbitALIF{} narrows the same gap through the richer
@@ -742,7 +745,7 @@ satellite's limited tile budget.
 
 Figure~\ref{fig:fedpsnr} plots PSNR against communication rounds
 for all three backbones. All three converge smoothly; the per-plane
-min--max envelope of \OrbitALIF{}-SNN remains narrow throughout,
+min--max envelope of \OrbitALIF{} remains narrow throughout,
 confirming that chain-Gossip propagates updates evenly across
 orbital planes despite the asymmetric Walker-Star topology.
 Both \OrbitALIF{} variants transmit $14{,}777$\,MB — identical
@@ -770,8 +773,8 @@ onboard system. We now explain why, using centralized training to
 isolate architectural effects from federation noise.
 
 \noindent\textbf{Centralized upper bound.}
-Under full data access, \OrbitALIF{}-ANN reaches $25.374$\,dB on
-CR1 and $23.197$\,dB on CR2, exceeding PlainUNet by $+0.502$\,dB
+Under full data access, \OrbitANN{} reaches $25.374$\,dB on
+CR1 and $23.197$\,dB on CR2, exceeding \OrbitUnet{} by $+0.502$\,dB
 and $+0.157$\,dB. Table~\ref{tab:cr1} places \OrbitALIF{} against
 seven published cloud-removal models: it sits within $0.81$\,dB of
 DE-MemoryNet ($26.183$\,dB) while using $2.30$\,M parameters and
@@ -813,7 +816,7 @@ epochs. B1 replaces \SHAM\ with identity; B2 replaces dual-group
 with binary spikes. Table~\ref{tab:ablation} and
 Figure~\ref{fig:ablation} order the drops as \SHAM\
 ($-0.597$\,dB) $>$ \DFRB\ ($-0.516$\,dB) $>$ \FQS-LIF\
-($-0.302$\,dB). B1 and B2 both fall \emph{below} PlainUNet
+($-0.302$\,dB). B1 and B2 both fall \emph{below} \OrbitUnet{}
 ($24.872$\,dB) while B3 stays above: the system gain is a synergy
 across \SHAM\ and \DFRB\ rather than a sum of independent
 contributions. \FQS-LIF\ refines rather than load-bears —
@@ -833,7 +836,7 @@ Full (A1)            & 2.30 & 25.374 & ---      & 0.7728 \\
 $-$\SHAM{} (B1)      & 2.22 & 24.777 & $-$0.597 & 0.7620 \\
 $-$\DFRB{} dual (B2) & 1.44 & 24.858 & $-$0.516 & 0.7633 \\
 $-$\FQS-LIF{} (B3)   & 2.30 & 25.072 & $-$0.302 & 0.7666 \\
-PlainUNet (C2)       & 1.31 & 24.872 & $-$0.502 & 0.7683 \\
+\OrbitUnet{} (C2)       & 1.31 & 24.872 & $-$0.502 & 0.7683 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -861,7 +864,7 @@ cloud, consistent with the smaller CR2 margin.
   \centering
   \includegraphics[width=\textwidth]{fig3_qualitative_grid-1.png}
   \caption{Qualitative cloud-removal on four CUHK-CR1 test tiles.
-  Columns: cloudy input / \OrbitALIF{}-SNN (ours) / PlainUNet /
+  Columns: cloudy input / \OrbitALIF{} (ours) / \OrbitUnet{} /
   ground truth. Per-image PSNR annotated on each cell.}
   \label{fig:qualitative}
 \end{figure*}
@@ -884,12 +887,12 @@ CUHK-CR1, sitting within $0.81$\,dB of the strongest published
 cloud-removal model while consuming only $0.287$\,mJ per inference
 on neuromorphic hardware — a $72.3\times$ reduction over the ANN
 baseline. Under decentralized FedBN$+$Gossip with Dirichlet
-$\alpha\!=\!0.1$, \OrbitALIF{}-SNN reaches $21.886$\,dB and
+$\alpha\!=\!0.1$, \OrbitALIF{} reaches $21.886$\,dB and
 degrades by only $0.126$\,dB when source heterogeneity tightens
 tenfold, confirming that the adapted FedBN rule absorbs
 orbital-plane climatology shifts without re-tuning. The
 architecture advantage scales under federation: the multi-domain
-backbone outperforms PlainUNet by $+0.667$\,dB in the ANN variant,
+backbone outperforms \OrbitUnet{} by $+0.667$\,dB in the ANN variant,
 larger than the centralized margin, with no additional communication
 overhead from the spiking design.
 

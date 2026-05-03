@@ -907,9 +907,9 @@ def fig5_federated_curves(args, out_dir: Path) -> None:
     outputs_v2 = Path(args.outputs_v2)
 
     spec = [
-        (args.run_f_snn,   "F-SNN (OrbitVLIF)",      PALETTE_BLUE,   "o"),
-        (args.run_f_ann,   "F-ANN (OrbitVLIF-ANN)",  PALETTE_ORANGE, "s"),
-        (args.run_f_plain, "F-Plain (PlainUNet)",    PALETTE_GREEN,  "D"),
+        (args.run_f_snn,   "OrbitALIF",  PALETTE_BLUE,   "o"),
+        (args.run_f_ann,   "OrbitANN",   PALETTE_ORANGE, "s"),
+        (args.run_f_plain, "OrbitUnet",  PALETTE_GREEN,  "D"),
     ]
 
     drawn: List[Tuple[str, np.ndarray, np.ndarray]] = []   # (label, rounds, comm_cum_MB)
@@ -1079,12 +1079,9 @@ def fig6_energy_bars(args, out_dir: Path) -> None:
     ac_pj   = float(cfg.get("ac_pj_per_op",   0.077) or 0.077)
 
     bars = [
-        (f"ANN baseline\n({ann_pj:.1f} pJ/MAC)",           ann,   PALETTE_ORANGE,
+        (f"ANN baseline\n({ann_pj:.1f} pJ/MAC)", ann, PALETTE_ORANGE,
             dict(edgecolor="black", linewidth=0.6)),
-        (f"SNN upper\n(MAC × $r$ × {ann_pj:.1f}\\,pJ)",    upper, PALETTE_BLUE,
-            dict(edgecolor=PALETTE_BLUE, linewidth=0.6,
-                 linestyle="--", facecolor="white", hatch="///")),
-        (f"SNN lower\n(MAC × $r$ × {ac_pj*1000:.0f}\\,fJ/SOP)", lower, PALETTE_BLUE,
+        (f"SNN\n(MAC × $r$ × {ac_pj*1000:.0f}\\,fJ/SOP)", lower, PALETTE_BLUE,
             dict(edgecolor="black", linewidth=0.6)),
     ]
 
