@@ -129,6 +129,12 @@ def _parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--energy_dir", type=str, default="./Outputs_energy_A1",
                    help="Directory containing energy_summary.json "
                         "(output of energy_estimation.py).  Required for Fig 6.")
+    p.add_argument("--energy_dir_plain", type=str, default="",
+                   help="Optional second energy_summary.json directory for the "
+                        "PlainUNet/OrbitUnet baseline (output of "
+                        "energy_estimation.py on the PlainUNet ckpt). "
+                        "When set, fig6 inserts an OrbitUnet bar between "
+                        "the ANN and SNN bars.")
     p.add_argument("--out_dir", type=str, default="./figures",
                    help="Where PDFs and .tex files are written.")
 
@@ -1079,11 +1085,31 @@ def fig6_energy_bars(args, out_dir: Path) -> None:
     ac_pj   = float(cfg.get("ac_pj_per_op",   0.077) or 0.077)
 
     bars = [
-        (f"ANN baseline\n({ann_pj:.1f} pJ/MAC)", ann, PALETTE_ORANGE,
-            dict(edgecolor="black", linewidth=0.6)),
-        (f"SNN\n(MAC × $r$ × {ac_pj*1000:.0f}\\,fJ/SOP)", lower, PALETTE_BLUE,
+        (f"OrbitANN\n({ann_pj:.1f} pJ/MAC)", ann, PALETTE_ORANGE,
             dict(edgecolor="black", linewidth=0.6)),
     ]
+
+    # Optional middle bar: OrbitUnet (PlainUNet) ANN energy from a second
+    # energy_summary.json.  Skipped silently if the path is empty or the
+    # file is missing — keeps the script usable when the baseline ckpt
+    # has not yet been profiled.
+    plain_dir_str = getattr(args, "energy_dir_plain", "") or ""
+    if plain_dir_str:
+        plain_summary = load_energy_summary(Path(plain_dir_str))
+        if plain_summary is not None:
+            plain_ann = float(plain_summary.get("energy_per_image", {})
+                                            .get("energy_ann_pj", 0.0) or 0.0)
+            if plain_ann > 0:
+                bars.append(
+                    (f"OrbitUnet\n({ann_pj:.1f} pJ/MAC)", plain_ann,
+                     PALETTE_GREEN,
+                     dict(edgecolor="black", linewidth=0.6)),
+                )
+
+    bars.append(
+        (f"OrbitALIF\n(MAC × $r$ × {ac_pj*1000:.0f}\\,fJ/SOP)", lower,
+         PALETTE_BLUE, dict(edgecolor="black", linewidth=0.6)),
+    )
 
     fig, ax = plt.subplots(figsize=FIG_SINGLE_COL)
     ax.grid(True, axis="y", which="both", linewidth=0.3, alpha=0.4)
