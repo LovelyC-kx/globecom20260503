@@ -1126,7 +1126,17 @@ def fig6_energy_bars(args, out_dir: Path) -> None:
         ax.bar(i, plot_v, **kwargs)
 
         if value > 0:
-            ax.text(i, plot_v, _fmt_pj(value), ha="center", va="bottom",
+            txt = _fmt_pj(value)
+            # Only the last bar (OrbitALIF) carries the X-lower ratio,
+            # so the headline "72× lower" reads cleanly without the
+            # smaller OrbitUnet ratio competing for attention.
+            if ann > 0 and i == len(bars) - 1:
+                ratio = ann / value
+                if ratio >= 10:
+                    txt += f"\n({ratio:.0f}× lower)"
+                else:
+                    txt += f"\n({ratio:.2f}× lower)"
+            ax.text(i, plot_v, txt, ha="center", va="bottom",
                     fontsize=7.5, fontweight="bold")
         else:
             ax.text(i, floor, "n/a", ha="center", va="bottom",
