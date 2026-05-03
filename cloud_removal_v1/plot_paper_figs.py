@@ -1330,8 +1330,8 @@ def fig8_alpha_curves(args, out_dir: Path) -> None:
     # ANN single-satellite robustness: train OrbitANN on the satellite
     # holding the largest Dirichlet slice, sweep alpha.  Two curves only.
     spec = [
-        (r"\textsc{OrbitANN}, $\alpha=0.1$",  "single_ann_alpha01",   PALETTE_ORANGE, "-"),
-        (r"\textsc{OrbitANN}, $\alpha=0.01$", "single_ann_alpha001",  PALETTE_ORANGE, "--"),
+        (r"OrbitANN, $\alpha=0.1$",  "single_ann_alpha01",   PALETTE_ORANGE, "-"),
+        (r"OrbitANN, $\alpha=0.01$", "single_ann_alpha001",  PALETTE_ORANGE, "--"),
     ]
 
     drawn: List[tuple] = []
