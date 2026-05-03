@@ -1287,32 +1287,34 @@ def _short_layer_name(full: str, max_len: int = 14) -> str:
 
 
 def fig8_alpha_curves(args, out_dir: Path) -> None:
-    """SNN federated PSNR-vs-round overlay across Dirichlet alphas.
+    """SNN vs ANN federated PSNR-vs-round across two Dirichlet alphas.
 
-    Reads three NPZ runs::
+    Reads four NPZ runs (any subset is OK, missing runs are skipped)::
 
-        v2a_F_snn_alpha10_fedbn_Gossip_Averaging.npz   (alpha=1.0,  IID-ish)
-        v2a_F_snn_fedbn_Gossip_Averaging.npz           (alpha=0.1,  default)
-        v2a_F_snn_alpha001_fedbn_Gossip_Averaging.npz  (alpha=0.01, extreme)
+        v2a_F_snn_fedbn_Gossip_Averaging.npz           (SNN, alpha=0.1)
+        v2a_F_snn_alpha001_fedbn_Gossip_Averaging.npz  (SNN, alpha=0.01)
+        v2a_F_ann_fedbn_Gossip_Averaging.npz           (ANN, alpha=0.1)
+        v2a_F_ann_alpha001_fedbn_Gossip_Averaging.npz  (ANN, alpha=0.01)
 
-    Three curves on a single axis; colour interpolates from light to
-    dark blue with decreasing alpha so the heterogeneity ladder reads
-    visually.  Skipped (no crash) when all three runs are missing.
+    Colour separates SNN (blue) from ANN (orange); line style separates
+    alpha=0.1 (solid) from alpha=0.01 (dashed).  This makes the
+    backbone-vs-skew interaction readable on a single axis.
     """
     _setup_mpl()
     import matplotlib.pyplot as plt
 
     outputs_v2 = Path(args.outputs_v2)
 
-    # (alpha_label, run_name, colour) — order = increasing heterogeneity.
+    # (label, run_name, colour, linestyle) — order = legend order.
     spec = [
-        (r"$\alpha=1.0$",  "F_snn_alpha10",  "#9ecae1"),
-        (r"$\alpha=0.1$",  "F_snn",          "#3182bd"),
-        (r"$\alpha=0.01$", "F_snn_alpha001", "#08306b"),
+        (r"SNN, $\alpha=0.1$",  "F_snn",          PALETTE_BLUE,   "-"),
+        (r"SNN, $\alpha=0.01$", "F_snn_alpha001", PALETTE_BLUE,   "--"),
+        (r"ANN, $\alpha=0.1$",  "F_ann",          PALETTE_ORANGE, "-"),
+        (r"ANN, $\alpha=0.01$", "F_ann_alpha001", PALETTE_ORANGE, "--"),
     ]
 
     drawn: List[tuple] = []
-    for label, run_name, _ in spec:
+    for label, run_name, color, ls in spec:
         d = load_federated_npz(outputs_v2, run_name)
         if d is None:
             continue
@@ -1321,7 +1323,7 @@ def fig8_alpha_curves(args, out_dir: Path) -> None:
         rounds, psnr = _finite(rounds, psnr)
         if rounds.size == 0:
             continue
-        drawn.append((label, rounds, psnr))
+        drawn.append((label, rounds, psnr, color, ls))
 
     if not drawn:
         _warn("fig8: all alpha-sweep runs missing, skipped")
@@ -1329,15 +1331,17 @@ def fig8_alpha_curves(args, out_dir: Path) -> None:
 
     fig, ax = plt.subplots(figsize=(3.5, 2.4))
     legend_handles, legend_labels = [], []
-    for (label, rounds, psnr), (_, _, color) in zip(drawn, spec):
+    for label, rounds, psnr, color, ls in drawn:
         psnr_s = _smooth(psnr, w=9)
-        ln, = ax.plot(rounds, psnr_s, color=color, linewidth=1.3)
+        ln, = ax.plot(rounds, psnr_s, color=color, linewidth=1.3,
+                      linestyle=ls)
         legend_handles.append(ln)
         legend_labels.append(label)
 
     ax.set_xlabel("Communication round")
     ax.set_ylabel("PSNR (dB)")
-    ax.legend(legend_handles, legend_labels, loc="lower right", ncol=1)
+    ax.legend(legend_handles, legend_labels, loc="lower right",
+              ncol=1, fontsize=7)
     ax.margins(x=0.02)
 
     fig.tight_layout(pad=0.3)
