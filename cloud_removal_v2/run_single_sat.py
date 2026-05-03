@@ -54,13 +54,34 @@ def _parse(argv=None) -> argparse.Namespace:
                        help="Pin the in-plane satellite index. "
                             "Default -1 = auto-pick alongside --plane_idx.")
     extra.add_argument("--eval_patch_size", type=int, default=64)
+    extra.add_argument("--alphas", type=str, default="",
+                       help="Comma-separated Dirichlet alphas to sweep in a "
+                            "single invocation, e.g. '0.1,0.01'. Each alpha "
+                            "produces v2a_<run_name_prefix>_alpha<tag>_*.npz "
+                            "where tag is alpha with the dot stripped "
+                            "(0.1->01, 0.01->001). When set, --partition_alpha "
+                            "and --run_name are ignored.")
+    extra.add_argument("--run_name_prefix", type=str, default="single",
+                       help="Used only with --alphas to build per-alpha "
+                            "run_name = <prefix>_<backbone>_alpha<tag>.")
     extra_ns, remaining = extra.parse_known_args(argv)
 
     base_ns = parse_v2a_cli(remaining)
     base_ns.plane_idx       = extra_ns.plane_idx
     base_ns.sat_idx         = extra_ns.sat_idx
     base_ns.eval_patch_size = extra_ns.eval_patch_size
+    base_ns.alphas          = extra_ns.alphas
+    base_ns.run_name_prefix = extra_ns.run_name_prefix
     return base_ns
+
+
+def _alpha_tag(alpha: float) -> str:
+    """0.1 -> '01', 0.01 -> '001', 1.0 -> '10'.  Matches the existing
+    F_snn / F_snn_alpha001 naming convention so fig8 picks them up."""
+    s = f"{alpha:.6f}".rstrip("0").rstrip(".")   # '0.1', '0.01', '1'
+    if not s or s == "0":
+        return "0"
+    return s.replace(".", "")                    # '0.1'->'01', '0.01'->'001'
 
 
 def _pick_largest_sat(client_datasets) -> tuple:
@@ -74,18 +95,22 @@ def _pick_largest_sat(client_datasets) -> tuple:
     return best_p, best_s, best_n
 
 
-def main(argv=None) -> None:
-    args = _parse(argv)
-    _ensure_omp_threads()
+def _run_one(args: argparse.Namespace,
+             train_ms,
+             test_ms,
+             device: torch.device) -> None:
+    """One isolated single-satellite run with the alpha already set on `args`.
+
+    Hoisted out of main() so the --alphas sweep can reuse the same loaded
+    train_ms/test_ms across alphas (Dirichlet partition is rebuilt inside,
+    so no data leakage).
+    """
+    # Re-seed at the start of each run so model initialisation is byte-
+    # identical across alpha values; otherwise the second sweep iteration
+    # would inherit a downstream RNG state and start from different
+    # weights, contaminating the alpha-comparison.
     _set_seed(args.seed, deterministic=getattr(args, "deterministic", False))
 
-    device = torch.device(args.device if torch.cuda.is_available() else "cpu")
-    _log(f"device: {device}")
-    args.vlif_backend = _negotiate_backend(args.vlif_backend)
-    _log(f"VLIFNet backend: {args.vlif_backend}")
-
-    # --- 1. Build the same Dirichlet partition the federated runs use ---
-    train_ms, test_ms = _load_datasets(args)
     aug_params = {
         "hflip_p":  args.aug_hflip_p,
         "vflip_p":  args.aug_vflip_p,
@@ -223,6 +248,42 @@ def main(argv=None) -> None:
         json.dump(summary, f, indent=2)
     _log(f"wrote summary: PSNR_final={summary['PSNR_final']:.3f} "
          f"SSIM_final={summary['SSIM_final']:.4f}")
+
+
+def main(argv=None) -> None:
+    args = _parse(argv)
+    _ensure_omp_threads()
+    _set_seed(args.seed, deterministic=getattr(args, "deterministic", False))
+
+    device = torch.device(args.device if torch.cuda.is_available() else "cpu")
+    _log(f"device: {device}")
+    args.vlif_backend = _negotiate_backend(args.vlif_backend)
+    _log(f"VLIFNet backend: {args.vlif_backend}")
+
+    # Datasets are shared across the alpha sweep; only the Dirichlet
+    # partition (which lives inside _run_one) is rebuilt per alpha.
+    train_ms, test_ms = _load_datasets(args)
+
+    if args.alphas.strip():
+        # --- Sweep mode -------------------------------------------------
+        import gc
+        alphas = [float(a) for a in args.alphas.split(",") if a.strip()]
+        _log(f"alpha sweep: {alphas}  backbone={args.backbone}")
+        for alpha in alphas:
+            args.partition_alpha = float(alpha)
+            args.run_name = (f"{args.run_name_prefix}_{args.backbone}"
+                             f"_alpha{_alpha_tag(alpha)}")
+            _log(f"\n========== alpha={alpha}  run_name={args.run_name} "
+                 f"==========")
+            _run_one(args, train_ms, test_ms, device)
+            # Free the previous run's model + optimizer + dataloader
+            # workers before the next alpha builds new ones.
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+    else:
+        # --- Single-alpha mode (legacy CLI) ----------------------------
+        _run_one(args, train_ms, test_ms, device)
 
 
 if __name__ == "__main__":
