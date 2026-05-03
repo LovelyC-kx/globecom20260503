@@ -704,26 +704,27 @@ constellation, \OrbitALIF{} drops by only $-0.126$\,dB
 effect, since BN and \TDBN\ statistics never enter the inter-plane
 average (Section~\ref{sec:sysmodel}).
 
-To probe the \emph{model-level} contribution alone, we additionally
-train the matched ANN backbone (\OrbitANN{}, ReLU/BN drop-in)
-on a single satellite -- the one holding the largest Dirichlet
-slice at each $\alpha$ -- with no aggregation. Fig.~\ref{fig:alpha}
-overlays the four PSNR-vs-round curves. Comparing the
-$\alpha\!=\!0.1\!\to\!0.01$ gap of each backbone gives a clean
-relative robustness reading: the ANN's gap is wider than the SNN's,
-so the spike-quantization gate provides robustness independently of
-the federation's normalization tricks.
+To probe the \emph{model-level} contribution alone -- without the
+plane-local BN absorbing some of the skew -- we train the matched
+ANN backbone (\OrbitANN{}, ReLU/BN drop-in) on a single satellite,
+selecting at each $\alpha$ the satellite with the largest Dirichlet
+slice and disabling all aggregation. Fig.~\ref{fig:alpha} reports
+the resulting two PSNR-vs-round curves. Tightening $\alpha$ tenfold
+shifts the \OrbitANN{} curve down by clearly more than the
+$0.126$\,dB the federated \OrbitALIF{} loses across the same
+$\alpha$ change, indicating that the spike-quantization gate of
+\OrbitALIF{} contributes intrinsic robustness on top of the
+federation-level normalization tricks.
 
 \begin{figure}[!t]
   \centering
   \includegraphics[width=\columnwidth]{fig8_alpha_curves.png}
-  \caption{Robustness check across $\alpha\!\in\!\{0.1,0.01\}$.
-  Blue: \OrbitALIF{} under \textsc{FedBN}+Gossip on the full
-  constellation. Orange: matched-architecture \OrbitANN{}
-  trained on the single satellite holding the largest Dirichlet
-  slice at each $\alpha$ (no aggregation). Solid: $\alpha\!=\!0.1$;
-  dashed: $\alpha\!=\!0.01$. The model-level robustness gap (orange
-  pair) is wider than the federation-included gap (blue pair).}
+  \caption{\OrbitANN{} single-satellite PSNR vs.\ communication
+  round on the largest Dirichlet slice at each $\alpha$, with no
+  aggregation. Solid: $\alpha\!=\!0.1$; dashed: $\alpha\!=\!0.01$.
+  The same backbone with \FQS-LIF\ activations (\OrbitALIF{}) loses
+  only $0.126$\,dB across the same $\alpha$ change in the federated
+  setting (Table~\ref{tab:federated}, $21.886\!\to\!21.760$\,dB).}
   \label{fig:alpha}
 \end{figure}
 

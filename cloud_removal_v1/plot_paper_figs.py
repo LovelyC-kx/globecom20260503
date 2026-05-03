@@ -1302,15 +1302,11 @@ def fig8_alpha_curves(args, out_dir: Path) -> None:
 
     outputs_v2 = Path(args.outputs_v2)
 
-    # (label, run_name, colour, linestyle) — order = legend order.
-    # SNN curves are the existing federated runs (apples-to-apples is
-    # imperfect; see paper §IV.C).  ANN curves are single-satellite
-    # runs of the largest Dirichlet slice produced by run_single_sat.py.
+    # ANN single-satellite robustness: train OrbitANN on the satellite
+    # holding the largest Dirichlet slice, sweep alpha.  Two curves only.
     spec = [
-        (r"SNN, $\alpha=0.1$ (fed)",      "F_snn",                PALETTE_BLUE,   "-"),
-        (r"SNN, $\alpha=0.01$ (fed)",     "F_snn_alpha001",       PALETTE_BLUE,   "--"),
-        (r"ANN, $\alpha=0.1$ (single)",   "single_ann_alpha01",   PALETTE_ORANGE, "-"),
-        (r"ANN, $\alpha=0.01$ (single)",  "single_ann_alpha001",  PALETTE_ORANGE, "--"),
+        (r"\textsc{OrbitANN}, $\alpha=0.1$",  "single_ann_alpha01",   PALETTE_ORANGE, "-"),
+        (r"\textsc{OrbitANN}, $\alpha=0.01$", "single_ann_alpha001",  PALETTE_ORANGE, "--"),
     ]
 
     drawn: List[tuple] = []
